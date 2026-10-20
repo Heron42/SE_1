@@ -18,17 +18,26 @@ segment code
 		MOV 	SP,stacktop				; Inicializa o apontador de Pilha SP
 ; ---------------------------------------------------------------------------------------------------------------------------;
 
-; ---------------------------------------------- Alocação da Interrupção do Teclado --------------------------------------------;
+; ---------------------------------------------- Alocação das Interrupções --------------------------------------------;
 
 		CLI								; Deshabilita INTerrupções por hardware - pin INTR NÃO atende INTerrupções externas	
         XOR     AX, AX					; Limpa o registrador AX, é equivalente a fazer "MOV AX,0"
         MOV     ES, AX					; Inicializa o registrador de Segmento Extra ES para acessar à região de vetores de INTerrupção (posição zero de memoria)
         MOV     AX, [ES:INT9*4]			; Carrega em AX o valor do IP do vector de INTerrupção 9 
-        MOV     [offset_dos], AX    	; Salva na variável offset_dos o valor do IP do vector de INTerrupção 9
+        MOV     [offset_tec], AX    	; Salva na variável offset_dos o valor do IP do vector de INTerrupção 9
         MOV     AX, [ES:INT9*4+2]   	; Carrega em AX o valor do CS do vector de INTerrupção 9
-        MOV     [cs_dos], AX			; Salva na variável cs_dos o valor do CS do vector de INTerrupção 9     
+        MOV     [cs_tec], AX			; Salva na variável cs_dos o valor do CS do vector de INTerrupção 9     
         MOV     [ES:INT9*4+2], CS		; Atualiza o valor do CS do vector de INTerrupção 9 com o CS do programa atual 
         MOV     WORD [ES:INT9*4],keyINT	; Atualiza o valor do IP do vector de INTerrupção 9 com o offset "keyINT" do programa atual
+
+        XOR 	AX, AX						; Limpa o registrador AX, é equivALente a fazer "MOV AX,0"
+		MOV 	ES, AX						; Inicializa o registrador de Segmento Extra ES para acessar à região de vetores de INTerrupção (posição zero de memoria)
+		MOV     AX, [ES:INTr*4]				; Carrega em AX o vALor do IP do vector de INTerrupção 8
+		MOV     [offset_clk], AX    		; Salva na variável offset_dos o vALor do IP do vector de INTerrupção 8
+		MOV     AX, [ES:INTr*4+2]   		; Carrega em AX o vALor do CS do vector de INTerrupção 8
+		MOV     [cs_clk], AX  				; Salva na variável cs_dos o vALor do CS do vector de INTerrupção 8   
+		MOV     [ES:INTr*4+2], CS			; Atualiza o valor do CS do vector de INTerrupção 8 com o CS do programa atuAL
+		MOV     WORD [ES:INTr*4],ClockINT	; Atualiza o valor do IP do vector de INTerrupção 8 com o offset "ClockINT" do programa atuAL
         STI								; Habilita INTerrupções por hardware - pin INTR SIM atende INTerrupções externas
 ; -----------------------------------------------------------------------------------------------------------------------------;
 
@@ -43,8 +52,25 @@ segment code
    		MOV     	AH,0
     	INT     	10h
 ; -------------------------------------------------------------------------------------------------------------------------;
-                
+
+Desenho:
+		;mov byte[cor], vermelho
+		;mov ax, 100
+		;push ax
+		;mov ax, 240
+		;push ax
+		;mov ax, 600
+		;push ax
+		;mov ax, 240
+		;push ax
+		;CALL linha_grossa
+		call perso1
+		call perso2
 L1:
+        CMP byte [tique],0
+        JNE ab
+        jmp L1
+ab:
         MOV     AX,[p_i]				; loop - se não tem tecla pulsada, não faz nada! p_i só é atualizado (p_i = p_i + 1) na Rotina de Serviço de INTerrupção (ISR) "keyINT" 
         CMP     AX,[p_t]
         JE      L1
@@ -73,22 +99,37 @@ continua:
 continua1:
         MOV     [teclasc+1], AH			; O ressiduo da divisão é transferido à variável "teclasc+1"
         MOV     DX,teclasc				; Carrega endereço de teclasc
-        MOV     AH, 9 					; Imprimir string DOS, ou seja, imprime o valor em ascii da tecla pulsada. Por exemplo, se for tecla #2 ('1') imprime 02 (Make) ou 82 (Break)
-        INT     21h						; Chama INTerrupção por software para imprimir o valor!
+        ;MOV     AH, 9 					; Imprimir string DOS, ou seja, imprime o valor em ascii da tecla pulsada. Por exemplo, se for tecla #2 ('1') imprime 02 (Make) ou 82 (Break)
+        ;INT     21h						; Chama INTerrupção por software para imprimir o valor!
 		
         CMP     BYTE [tecla_u], 81h		; Se for pulsada a tecla ESC gera o código Break = 0x81, 
-        JE      L2						; Então pula para sair do programa!
+        JE      fim						; Então pula para sair do programa!
         JMP     L1						; Se não, pula para L1 e começa tudo de novo!
 
-L2:										; Ao sair do programa temos que restaurar o CS:IP da INTerrupção 9, que incialmente alteramos nas linhas 26 e 27
+fim:										; Ao sair do programa temos que restaurar o CS:IP da INTerrupção 9, que incialmente alteramos nas linhas 26 e 27
         CLI								; Deshabilita INTerrupções por hardware - pin INTR NÃO atende INTerrupções externas
+
         XOR     AX, AX					; Limpa o registrador AX, é equivalente a fazer "MOV AX,0"				
         MOV     ES, AX					; Inicializa o registrador de Segmento Extra ES para acessar à região de vetores de INTerrupção (posição zero de memoria)
-        MOV     AX, [cs_dos]			; Carrega em AX o valor do CS do vector de INTerrupção 9 que foi salvo na variável cs_dos -> linha 25
+        MOV     AX, [cs_tec]			; Carrega em AX o valor do CS do vector de INTerrupção 9 que foi salvo na variável cs_dos -> linha 25
         MOV     [ES:INT9*4+2], AX		; Atualiza o valor do CS do vector de INTerrupção 9 que foi salvo na variável cs_dos
-        MOV     AX, [offset_dos]		; Carrega em AX o valor do IP do vector de INTerrupção 9 que foi salvo na variável offset_dos -> linha 23
+        MOV     AX, [offset_tec]		; Carrega em AX o valor do IP do vector de INTerrupção 9 que foi salvo na variável offset_dos -> linha 23
         MOV     [ES:INT9*4], AX 		; Atualiza o valor do IP do vector de INTerrupção 9 que foi salvo na variável offset_dos
-        MOV     AH, 4Ch					; Carrega em AH o valor de 4Ch, parametro para INT 21h
+
+        XOR     AX, AX						; Limpa o registrador AX, é equivalente a fazer "MOV AX,0"
+		MOV     ES, AX						; Inicializa o registrador de Segmento Extra ES para acessar à região de vetores de INTerrupção (posição zero de memoria)
+		MOV     AX, [cs_clk]				; Carrega em AX o valor do CS do vector de INTerrupção 8 que foi salvo na variável cs_dos -> linha 16
+		MOV     [ES:INTr*4+2], AX			; Atualiza o valor do CS do vector de INTerrupção 8 que foi salvo na variável cs_dos
+		MOV     AX, [offset_clk]			; Carrega em AX o valor do IP do vector de INTerrupção 8 que foi salvo na variável offset_dos				
+		MOV     [ES:INTr*4], AX 			; Atualiza o valor do IP do vector de INTerrupção 8 que foi salvo na variável offset_dos
+
+		MOV    	AH,08h
+		INT     21h
+	    MOV  	AH,0   				; set video mode
+	    MOV  	AL,[modo_anterior] 	; modo anterior
+	    INT  	10h
+
+		MOV     AH, 4Ch						; Carrega em AH o valor de 4Ch, parametro para INT 21h
         INT     21h						; Chama Interrupção 21h para retornar o controle ao sistema operacional -> sai de forma segura da execução do programa
 
 
@@ -118,8 +159,223 @@ keyINT:									; Este segmento de código só será executado se uma tecla for 
         IRET							; Retorna da interrupção
 ; ----------------------------------------------------------------------------------------------------------;
 
+; ---------------------------------------------- ISR de Clock --------------------------------------------;
+
+ClockINT:									; Este segmento de código só será executado se um pulso de relojio está ativo, ou seja, se a INT 8h for acionada!
+		PUSH	AX							; Salva contexto na pilha							
+		PUSH	DS
+		MOV     AX,data						; Carrega em AX o endereço de "data" -> Região do código onde encontra-se o segemeto de dados "Segment data"
+		MOV     DS,AX						; Atualiza registrador de segmento de dados DS, isso pode ser feito no inicio do programa!	
+    
+		INC		byte [tique]				; Incremente variável tique toda vez que entra na interrupção
+		CMP		byte[tique], 18				; Compara variável "teique" com 18, isso para alterar os valores do relogio a cada segundo -> 18/18.2 ~1 segundo!
+		JB		Fimrel						; Se for menor que 18 pula para Fimrel
+		MOV 	byte [tique], 0				; Se não, limpa variável tique e  
+		INC 	byte [segundo]				; Incrementa variável segundo
+		CMP 	byte [segundo], 60			; Compara variável "segundo" com 60
+		JB   	Fimrel						; Se segundo for menor do que 60, pula para Fimrel
+		MOV 	byte [segundo], 0			; Se não, limpa segundo e
+		INC 	byte [minuto]				; Incrementa variável minuto
+		CMP 	byte [minuto], 60			; Compara variável "minuto" com 60
+		JB   	Fimrel						; Se minuto for menor do que 60, pula para Fimrel
+		MOV 	byte [minuto], 0			; Se não, limpa minuto e
+		INC 	byte [hora]					; Incrementa variável hora
+		CMP 	byte [hora], 24				; Compara variável "hora" com 24
+		JB   	Fimrel						; Se hora for menor do que 24, pula para Fimrel
+		MOV 	byte [hora], 0				; Se não, limpa hora	
+Fimrel:
+		MOV		AL,eoi						; Carrega o AL com a byte de End of Interruption, -> 20h por default						
+		OUT		20h,AL						; Livera o PIC que está na porta 20h
+		POP		DS							; Reestablece os registradores salvos na pilha na linha 46
+		POP		AX
+		IRET								; Retorna da interrupção
+; ----------------------------------------------------------------------------------------------------------;
 
 ; ---------------------------------------------- Funções Gráficas --------------------------------------------;
+;-----------------------------------------------------------------------------
+;função perso1
+; altura do personagem = 160 parece ideal
+perso1:
+        PUSH    AX
+        PUSH    BX
+        PUSH    CX
+        PUSH    DX
+
+		mov al, [p1_cor]
+		mov byte[cor], al
+
+        ; Adição dos colchetes para ler o VALOR da variável
+        MOV     AX, [p1_pos_x]
+        MOV     BX, [p1_pos_y]
+cabeca1:
+        ADD     BX, 10
+        MOV     CX, 10
+        PUSH    AX
+        PUSH    BX
+        PUSH    CX
+        CALL    full_circle
+corpo1:
+        MOV     AX, [p1_pos_x]
+        MOV     BX, [p1_pos_y]
+        MOV     CX, BX
+        SUB     CX, 80
+        MOV     DX, AX
+        PUSH    AX
+        PUSH    BX
+        PUSH    DX
+        PUSH    CX
+        CALL    linha_grossa
+pernas1:
+    esquerda1:
+        MOV     AX, [p1_pos_x]
+        MOV     BX, [p1_pos_y]
+        SUB     BX, 80
+        MOV     CX, AX
+        SUB     CX, 25
+        MOV     DX, BX
+        SUB     DX, 80
+        PUSH    AX
+        PUSH    BX
+        PUSH    CX
+        PUSH    DX
+        CALL    linha_grossa
+
+    direita1:
+        MOV     AX, [p1_pos_x]
+        MOV     BX, [p1_pos_y]
+        SUB     BX, 80
+        MOV     CX, AX
+        ADD     CX, 25
+        MOV     DX, BX
+        SUB     DX, 80
+        PUSH    AX
+        PUSH    BX
+        PUSH    CX
+        PUSH    DX
+        CALL    linha_grossa
+bracos1:
+    esquerdo1:
+        MOV     AX, [p1_pos_x]
+        MOV     BX, [p1_pos_y]
+        MOV     CX, AX
+        SUB     CX, 25
+        MOV     DX, BX
+        SUB     DX, 65
+        PUSH    AX
+        PUSH    BX
+        PUSH    CX
+        PUSH    DX
+        CALL    linha_grossa
+
+    direito1:
+        MOV     AX, [p1_pos_x]
+        MOV     BX, [p1_pos_y]
+        MOV     CX, AX
+        ADD     CX, 25
+        MOV     DX, BX
+        SUB     DX, 65
+        PUSH    AX
+        PUSH    BX
+        PUSH    CX
+        PUSH    DX
+        CALL    linha_grossa
+fim_perso1:
+        POP     DX
+        POP     CX
+        POP     BX
+        POP     AX
+        RET
+
+perso2:
+        PUSH    AX
+        PUSH    BX
+        PUSH    CX
+        PUSH    DX
+
+		mov al, [p2_cor]
+		mov byte[cor], al
+
+        ; Adição dos colchetes para ler o VALOR da variável
+        MOV     AX, [p2_pos_x]
+        MOV     BX, [p2_pos_y]
+cabeca2:
+        ADD     BX, 10
+        MOV     CX, 10
+        PUSH    AX
+        PUSH    BX
+        PUSH    CX
+        CALL    full_circle
+corpo2:
+        MOV     AX, [p2_pos_x]
+        MOV     BX, [p2_pos_y]
+        MOV     CX, BX
+        SUB     CX, 80
+        MOV     DX, AX
+        PUSH    AX
+        PUSH    BX
+        PUSH    DX
+        PUSH    CX
+        CALL    linha_grossa
+pernas2:
+    esquerda2:
+        MOV     AX, [p2_pos_x]
+        MOV     BX, [p2_pos_y]
+        SUB     BX, 80
+        MOV     CX, AX
+        SUB     CX, 25
+        MOV     DX, BX
+        SUB     DX, 80
+        PUSH    AX
+        PUSH    BX
+        PUSH    CX
+        PUSH    DX
+        CALL    linha_grossa
+
+    direita2:
+        MOV     AX, [p2_pos_x]
+        MOV     BX, [p2_pos_y]
+        SUB     BX, 80
+        MOV     CX, AX
+        ADD     CX, 25
+        MOV     DX, BX
+        SUB     DX, 80
+        PUSH    AX
+        PUSH    BX
+        PUSH    CX
+        PUSH    DX
+        CALL    linha_grossa
+bracos2:
+    esquerdo2:
+        MOV     AX, [p2_pos_x]
+        MOV     BX, [p2_pos_y]
+        MOV     CX, AX
+        SUB     CX, 25
+        MOV     DX, BX
+        SUB     DX, 65
+        PUSH    AX
+        PUSH    BX
+        PUSH    CX
+        PUSH    DX
+        CALL    linha_grossa
+
+    direito2:
+        MOV     AX, [p2_pos_x]
+        MOV     BX, [p2_pos_y]
+        MOV     CX, AX
+        ADD     CX, 25
+        MOV     DX, BX
+        SUB     DX, 65
+        PUSH    AX
+        PUSH    BX
+        PUSH    CX
+        PUSH    DX
+        CALL    linha_grossa
+fim_perso2:
+        POP     DX
+        POP     CX
+        POP     BX
+        POP     AX
+        RET
 ;-----------------------------------------------------------------------------
 ;função cursor
 ; Parametros:
@@ -473,6 +729,69 @@ fim_full_circle:
 	POPf
 	POP		BP
 	RET		6
+
+;-----------------------------------------------------------------------------
+;função linha
+; Parâmetros:
+;	PUSH x1; PUSH y1; PUSH x2; PUSH y2; CALL line;  (x<639, y<479)
+; Função linha_grossa
+; Parâmetros:
+;   PUSH x1; PUSH y1; PUSH x2; PUSH y2; CALL linha_grossa;
+linha_grossa:
+        PUSH    BP
+        MOV     BP,SP
+        PUSH    AX
+        PUSH    BX
+        PUSH    CX
+        PUSH    DX
+
+        ; Resgata as coordenadas originais passadas para linha_grossa
+        MOV     AX,[BP+10]      ; AX = x1
+        MOV     BX,[BP+8]       ; BX = y1
+        MOV     CX,[BP+6]       ; CX = x2
+        MOV     DX,[BP+4]       ; DX = y2
+
+        ; ----------------------------------------------------
+        ; 1º Traço: A linha central (coordenadas originais)
+        ; ----------------------------------------------------
+        PUSH    AX              ; x1
+        PUSH    BX              ; y1
+        PUSH    CX              ; x2
+        PUSH    DX              ; y2
+        CALL    line            ; A função line consome esses 4 PUSHes
+
+        ; ----------------------------------------------------
+        ; 2º Traço: Linha deslocada 1 pixel para a direita (+1 no X)
+        ; ----------------------------------------------------
+        INC     AX              ; x1 + 1
+        INC     CX              ; x2 + 1
+        
+        PUSH    AX              ; x1 + 1
+        PUSH    BX              ; y1 (mantido)
+        PUSH    CX              ; x2 + 1
+        PUSH    DX              ; y2 (mantido)
+        CALL    line            ; Consome os PUSHes
+
+        ; ----------------------------------------------------
+        ; 3º Traço: Linha deslocada 1 pixel para a esquerda (-1 do original)
+        ; ----------------------------------------------------
+        SUB     AX, 2           ; (x1 + 1) - 2 = x1 - 1
+        SUB     CX, 2           ; (x2 + 1) - 2 = x2 - 1
+        
+        PUSH    AX              ; x1 - 1
+        PUSH    BX              ; y1 (mantido)
+        PUSH    CX              ; x2 - 1
+        PUSH    DX              ; y2 (mantido)
+        CALL    line            ; Consome os PUSHes
+
+        ; Restaura os registradores originais da função chamadora
+        POP     DX
+        POP     CX
+        POP     BX
+        POP     AX
+        POP     BP
+        RET     8               ; Limpa os 8 bytes empilhados ao chamar linha_grossa
+
 ;-----------------------------------------------------------------------------
 ;função line
 ; Parametros:
@@ -640,13 +959,25 @@ segment data
         pictrl  EQU 20h					; PORTA DO PIC DE TECLADO
         eoi     EQU 20h					; Byte de final de interrupção PIC - resgistrador
         INT9    EQU 9h					; Interrupção por hardware do teclado
-        cs_dos  DW  1					; Variável de 2 bytes para armacenar o CS da INT 9
-        offset_dos  DW 1				; Variável de 2 bytes para armacenar o IP da INT 9
+        cs_tec  DW  1					; Variável de 2 bytes para armacenar o CS da INT 9
+        offset_tec  DW 1				; Variável de 2 bytes para armacenar o IP da INT 9
         tecla_u db 0
         tecla   resb  8					; Variável de 8 bytes para armacenar a tecla presionada. Só precisa de 2 bytes!	 
         p_i     dw  0   				; Indice p/ Interrupcao (Incrementa na ISR quando pressiona/solta qualquer tecla)  
         p_t     dw  0   				; Indice p/ Interrupcao (Incrementa após retornar da ISR quando pressiona/solta qualquer tecla)    
         teclasc DB  0,0,13,10,'$'		; Variável tipo char para printar o código Make/Break em hexadecimal
+; ------------------------------------------------------------------------------------------------------------------------------;
+
+; ---------------------------------------------- Variáveis de Interrupção de Clock --------------------------------------------;
+		INTr	   	EQU 08h					; Interrupção por hardware do tick
+		char		DB	0
+		offset_clk	DW	0					; Variável de 2 bytes para armacenar o IP da INT 8
+		cs_clk		DW	0					; Variável de 2 bytes para armacenar o CS da INT 8
+		tique		DB  0					; Variável de 2 bytes que é incrementada a cada tick do clock ~54.9 ms 
+		segundo		DB  0					; Variável para os segundos
+		minuto 		DB  0					; Variável para os minutos
+		hora 		DB  0					; Variável para as horas
+		horario		DB  0,0,':',0,0,':',0,0,' ', 13,'$' ; Variável typo string para printar o relogio
 ; ------------------------------------------------------------------------------------------------------------------------------;
 
 ; ---------------------------------------------- Variáveis do Modo Gráfico --------------------------------------------;
@@ -675,6 +1006,27 @@ segment data
         deltAX			dw		0
         deltay			dw		0	
         mens    		db  	'Funcao Grafica'
+; ---------------------------------------------------------------------------------------------------------------------;
+
+; ---------------------------------------------- Variáveis do Jogo --------------------------------------------;
+
+p1_pos_x     dw 160
+p1_pos_y     dw 190
+p1_tam_braco db 64
+p1_tam_perna db 100
+p1_tam_corpo db 80
+p1_estado    db 0    ; 0: idle, 1: dir, 2: esq, 3: soco, 4: chute
+p1_frame     db 0    ; Índice do frame atual da animacao
+p1_cor       db azul    ; azul
+
+p2_pos_x     dw 480
+p2_pos_y     dw 190
+p2_tam_braco db 64
+p2_tam_perna db 100
+p2_tam_corpo db 80
+p2_estado    db 0    ; 0: idle, 1: dir, 2: esq, 3: soco, 4: chute
+p2_frame     db 0    ; Índice do frame atual da animacao
+p2_cor       db vermelho    ; vermelho
 ; ---------------------------------------------------------------------------------------------------------------------;
 
 segment stack stack						; Segmento da pilha -> SS
