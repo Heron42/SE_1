@@ -64,8 +64,9 @@ Desenho:
 		;mov ax, 240
 		;push ax
 		;CALL linha_grossa
-		call perso1
-		call perso2
+		;call perso1
+		;call perso2
+		call idle
 L1:
         CMP byte [tique],0
         JNE ab
@@ -195,7 +196,107 @@ Fimrel:
 ;-----------------------------------------------------------------------------
 ;função perso1
 ; altura do personagem = 160 parece ideal
+idle:
+		push ax
+		push BX
+		push CX
+		push dx
+
+		mov al, [p1_cor]
+		mov byte[cor], al
+
+		MOV     AX, [p1_pos_x]
+        MOV     BX, [p1_pos_y]
+
+		;CMP byte[p1_frame], 0
+		;JE idle0
+		;cmp byte[p1_frame], 1
+		;je idle1
+		;cmp byte[p1_frame], 2
+		;je idle2
+		;cmp byte[p1_frame], 3
+		;je idle3
+		;cmp byte[p1_frame], 4
+		;je idle4
+	idle0:
+	;braço esquerdo
+		mov cx, ax
+		sub cx, 30
+		push cx
+		mov cx, BX
+		sub cx, 15
+		push cx
+
+		mov cx, ax
+		sub cx, 5
+		push cx
+		mov cx, bx
+		add cx, 5
+		push cx
+	;braço direito
+		mov cx, ax
+		add cx, 13
+		push cx
+		mov cx, BX
+		sub cx, 15
+		push cx
+
+		mov cx, ax
+		add cx, 13
+		push cx
+		mov cx, bx
+		add cx, 5
+		push cx
+	;perna esquerda
+		sub bx, 80
+
+		mov cx, ax
+		sub cx, 30
+		push cx
+		mov cx, BX
+		sub cx, 40
+		push cx
+
+		mov cx, ax
+		sub cx, 37
+		push cx
+		mov cx, bx
+		sub cx, 70
+		push cx
+	;perna direita
+		mov cx, ax
+		add cx, 30
+		push cx
+		mov cx, BX
+		sub cx, 40
+		push cx
+
+		mov cx, ax
+		add cx, 37
+		push cx
+		mov cx, bx
+		sub cx, 70
+		push cx
+
+		CALL perso1
+
+		pop dx
+		pop cx
+		pop BX
+		pop ax
+
+		RET
+
+;-----------------------------------------------------------------------------
+;função perso1
+; Parâmetros:
+; push xbe1 (+34), push ybe1, push xbe2, push ybe2, push xbd1, push ybd1, push xbd2, push ybd2
+; push xpe1, push ype1, push xpe2, push ype2, push xpd1, push ypd1 (+8), push xpd2 (+6), push ypd2 (+4)
+; RET 8
+; altura do personagem = 160 parece ideal
 perso1:
+		PUSH 	BP
+		MOV 	BP, SP
         PUSH    AX
         PUSH    BX
         PUSH    CX
@@ -204,7 +305,6 @@ perso1:
 		mov al, [p1_cor]
 		mov byte[cor], al
 
-        ; Adição dos colchetes para ler o VALOR da variável
         MOV     AX, [p1_pos_x]
         MOV     BX, [p1_pos_y]
 cabeca1:
@@ -230,10 +330,18 @@ pernas1:
         MOV     AX, [p1_pos_x]
         MOV     BX, [p1_pos_y]
         SUB     BX, 80
-        MOV     CX, AX
-        SUB     CX, 25
-        MOV     DX, BX
-        SUB     DX, 80
+        MOV     CX, [bp + 18]
+        MOV     DX, [bp + 16]
+        PUSH    AX
+        PUSH    BX
+        PUSH    CX
+        PUSH    DX
+        CALL    linha_grossa
+
+		MOV     AX, cx
+        MOV     BX, dx
+        MOV     CX, [bp + 14]
+        MOV     DX, [bp + 12]
         PUSH    AX
         PUSH    BX
         PUSH    CX
@@ -243,11 +351,19 @@ pernas1:
     direita1:
         MOV     AX, [p1_pos_x]
         MOV     BX, [p1_pos_y]
-        SUB     BX, 80
-        MOV     CX, AX
-        ADD     CX, 25
-        MOV     DX, BX
-        SUB     DX, 80
+		SUB 	BX, 80
+        MOV     CX, [bp + 10]
+        MOV     DX, [bp + 8]
+        PUSH    AX
+        PUSH    BX
+        PUSH    CX
+        PUSH    DX
+        CALL    linha_grossa
+
+		MOV     AX, cx
+        MOV     BX, dx
+        MOV     CX, [bp + 6]
+        MOV     DX, [bp + 4]
         PUSH    AX
         PUSH    BX
         PUSH    CX
@@ -257,10 +373,18 @@ bracos1:
     esquerdo1:
         MOV     AX, [p1_pos_x]
         MOV     BX, [p1_pos_y]
-        MOV     CX, AX
-        SUB     CX, 25
-        MOV     DX, BX
-        SUB     DX, 65
+        MOV     CX, [bp + 34]
+        MOV     DX, [bp + 32]
+        PUSH    AX
+        PUSH    BX
+        PUSH    CX
+        PUSH    DX
+        CALL    linha_grossa
+
+		MOV     AX, CX
+        MOV     BX, DX
+        MOV     CX, [bp + 30]
+        MOV     DX, [bp + 28]
         PUSH    AX
         PUSH    BX
         PUSH    CX
@@ -270,10 +394,18 @@ bracos1:
     direito1:
         MOV     AX, [p1_pos_x]
         MOV     BX, [p1_pos_y]
-        MOV     CX, AX
-        ADD     CX, 25
-        MOV     DX, BX
-        SUB     DX, 65
+        MOV     CX, [bp + 26]
+        MOV     DX, [bp + 24]
+        PUSH    AX
+        PUSH    BX
+        PUSH    CX
+        PUSH    DX
+        CALL    linha_grossa
+
+		MOV     AX, CX
+        MOV     BX, DX
+        MOV     CX, [bp + 22]
+        MOV     DX, [bp + 20]
         PUSH    AX
         PUSH    BX
         PUSH    CX
@@ -284,98 +416,8 @@ fim_perso1:
         POP     CX
         POP     BX
         POP     AX
-        RET
-
-perso2:
-        PUSH    AX
-        PUSH    BX
-        PUSH    CX
-        PUSH    DX
-
-		mov al, [p2_cor]
-		mov byte[cor], al
-
-        ; Adição dos colchetes para ler o VALOR da variável
-        MOV     AX, [p2_pos_x]
-        MOV     BX, [p2_pos_y]
-cabeca2:
-        ADD     BX, 10
-        MOV     CX, 10
-        PUSH    AX
-        PUSH    BX
-        PUSH    CX
-        CALL    full_circle
-corpo2:
-        MOV     AX, [p2_pos_x]
-        MOV     BX, [p2_pos_y]
-        MOV     CX, BX
-        SUB     CX, 80
-        MOV     DX, AX
-        PUSH    AX
-        PUSH    BX
-        PUSH    DX
-        PUSH    CX
-        CALL    linha_grossa
-pernas2:
-    esquerda2:
-        MOV     AX, [p2_pos_x]
-        MOV     BX, [p2_pos_y]
-        SUB     BX, 80
-        MOV     CX, AX
-        SUB     CX, 25
-        MOV     DX, BX
-        SUB     DX, 80
-        PUSH    AX
-        PUSH    BX
-        PUSH    CX
-        PUSH    DX
-        CALL    linha_grossa
-
-    direita2:
-        MOV     AX, [p2_pos_x]
-        MOV     BX, [p2_pos_y]
-        SUB     BX, 80
-        MOV     CX, AX
-        ADD     CX, 25
-        MOV     DX, BX
-        SUB     DX, 80
-        PUSH    AX
-        PUSH    BX
-        PUSH    CX
-        PUSH    DX
-        CALL    linha_grossa
-bracos2:
-    esquerdo2:
-        MOV     AX, [p2_pos_x]
-        MOV     BX, [p2_pos_y]
-        MOV     CX, AX
-        SUB     CX, 25
-        MOV     DX, BX
-        SUB     DX, 65
-        PUSH    AX
-        PUSH    BX
-        PUSH    CX
-        PUSH    DX
-        CALL    linha_grossa
-
-    direito2:
-        MOV     AX, [p2_pos_x]
-        MOV     BX, [p2_pos_y]
-        MOV     CX, AX
-        ADD     CX, 25
-        MOV     DX, BX
-        SUB     DX, 65
-        PUSH    AX
-        PUSH    BX
-        PUSH    CX
-        PUSH    DX
-        CALL    linha_grossa
-fim_perso2:
-        POP     DX
-        POP     CX
-        POP     BX
-        POP     AX
-        RET
+		POP 	BP
+        RET		32
 ;-----------------------------------------------------------------------------
 ;função cursor
 ; Parametros:
