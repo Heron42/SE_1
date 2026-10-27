@@ -8,94 +8,57 @@ global full_circle
 global circle
 
 idle:
-		push ax
-		push BX
-		push CX
-		push dx
+        PUSH    AX
+        PUSH    BX
+        PUSH    CX
+        PUSH    DX
+        PUSH    DI
+        PUSH    SI
 
-		mov al, [p1_cor]
-		mov byte[cor], al
+        ; Define a cor do jogador
+        MOV     AL, [p1_cor]
+        MOV     byte [cor], AL
 
-		MOV     AX, [p1_pos_x]
+        ; Calcula qual frame ler: Endereço = vetor_idle + (p1_frame * 32)
+        XOR     AH, AH
+        MOV     AL, [p1_frame]
+        MOV     SI, AX          
+        SHL     SI, 5           ; Multiplica SI por 32 (Shift Left 5 bits = * 32)
+        LEA     DI, [v_idle + SI] ; DI agora aponta para o início do frame atual
+
+        MOV     CX, 8           ; O loop rodará 8 vezes (8 pares de coordenadas X,Y)
+
+loop_empilha_frame:
+        ; Lê o offset de X do vetor, soma com a posição atual e empilha
+        MOV     AX, [p1_pos_x]
+        ADD     AX, [DI]        ; AX = Pos_X_Real + Offset_X
+        PUSH    AX
+        ADD     DI, 2           ; Avança 2 bytes no vetor (próxima word)
+
+        ; Lê o offset de Y do vetor, soma com a posição atual e empilha
         MOV     BX, [p1_pos_y]
+        ADD     BX, [DI]        ; BX = Pos_Y_Real + Offset_Y
+        PUSH    BX
+        ADD     DI, 2           ; Avança 2 bytes no vetor para o próximo X
+        
+        LOOP    loop_empilha_frame ; Decrementa CX; se CX > 0, volta para loop_empilha_frame
 
-		;CMP byte[p1_frame], 0
-		;JE idle0
-		;cmp byte[p1_frame], 1
-		;je idle1
-		;cmp byte[p1_frame], 2
-		;je idle2
-		;cmp byte[p1_frame], 3
-		;je idle3
-		;cmp byte[p1_frame], 4
-		;je idle4
-	idle0:
-	;braço esquerdo
-		mov cx, ax
-		sub cx, 20
-		push cx
-		mov dx, BX
-		sub dx, 20
-		push dx
+        ; Após o loop, todos os 16 parâmetros estão na pilha na ordem perfeita
+        CALL    perso1
 
-		add cx, 23
-		push cx
-		add dx, 3
-		push dx
-	;braço direito
-		mov cx, ax
-		add cx, 15
-		push cx
-		mov dx, BX
-		sub dx, 15
-		push dx
-
-		add cx, 12
-		push cx
-		add dx, 19
-		push dx
-	;perna esquerda
-		sub bx, [p1_tam_corpo]
-
-		mov cx, ax
-		sub cx, 15
-		push cx
-		mov dx, BX
-		sub dx, 21
-		push dx
-
-		sub cx, 7
-		push cx
-		sub dx, 13
-		push dx
-	;perna direita
-		mov cx, ax
-		add cx, 15
-		push cx
-		mov dx, BX
-		sub dx, 21
-		push dx
-
-		add cx, 7
-		push cx
-		sub dx, 13
-		push dx
-
-		CALL perso1
-
-		pop dx
-		pop cx
-		pop BX
-		pop ax
-
-		RET
+        POP     SI
+        POP     DI
+        POP     DX
+        POP     CX
+        POP     BX
+        POP     AX
+        RET
 ;-----------------------------------------------------------------------------
 ;função perso1
 ; Parâmetros:
 ; push xbe1 (+34), push ybe1, push xbe2, push ybe2, push xbd1, push ybd1, push xbd2, push ybd2
 ; push xpe1, push ype1, push xpe2, push ype2, push xpd1, push ypd1 (+8), push xpd2 (+6), push ypd2 (+4)
-; RET 8
-; altura do personagem = 160 parece ideal
+; RET 32
 perso1:
 		PUSH 	BP
 		MOV 	BP, SP
@@ -117,7 +80,7 @@ corpo1:
         MOV     AX, [p1_pos_x]
         MOV     BX, [p1_pos_y]
         MOV     CX, BX
-        SUB     CX, [p1_tam_corpo]
+        SUB     CX, [tam_corpo]
         MOV     DX, AX
         PUSH    AX
         PUSH    BX
@@ -128,7 +91,7 @@ pernas1:
     esquerda1:
         MOV     AX, [p1_pos_x]
         MOV     BX, [p1_pos_y]
-        SUB     BX, [p1_tam_corpo]
+        SUB     BX, [tam_corpo]
         MOV     CX, [bp + 18]
         MOV     DX, [bp + 16]
         PUSH    AX
@@ -150,7 +113,7 @@ pernas1:
     direita1:
         MOV     AX, [p1_pos_x]
         MOV     BX, [p1_pos_y]
-		SUB 	BX, [p1_tam_corpo]
+		SUB 	BX, [tam_corpo]
         MOV     CX, [bp + 10]
         MOV     DX, [bp + 8]
         PUSH    AX
@@ -804,14 +767,27 @@ extern mens
 
 extern p1_pos_x
 extern p1_pos_y
-extern p1_tam_corpo
 extern p1_estado
 extern p1_frame
 extern p1_cor
 
 extern p2_pos_x
 extern p2_pos_y
-extern p2_tam_corpo
 extern p2_estado
 extern p2_frame
 extern p2_cor
+
+extern tam_corpo
+
+v_idle:
+    ; --- Frame 0 ---
+    dw -20, -20,  3, -17     ; Braço Esquerdo
+    dw  15, -15, 27,   4     ; Braço Direito
+    dw -15, -71, -22, -84    ; Perna Esquerda
+    dw  15, -71,  22, -84    ; Perna Direita
+
+    ; --- Frame 1 ---
+    dw -20, -22,  3, -19     ; Braço Esquerdo
+    dw  15, -15, 27,   4     ; Braço Direito
+    dw -15, -71, -22, -84    ; Perna Esquerda
+    dw -15, -71,  22, -85    ; Perna Direita
