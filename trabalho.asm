@@ -269,38 +269,35 @@ segment data
 
 global p1_pos_x
 global p1_pos_y
-global p1_tam_corpo
 global p1_estado
 global p1_frame
 global p1_cor
 
 global p2_pos_x
 global p2_pos_y
-global p2_tam_corpo
 global p2_estado
 global p2_frame
 global p2_cor
 
+global tam_corpo
+
 p1_pos_x     dw 160
 p1_pos_y     dw 160
-p1_tam_braco db 64
-p1_tam_perna db 100
-p1_tam_corpo db 50
 p1_estado    db 0    ; 0: idle, 1: dir, 2: esq, 3: soco, 4: chute
 p1_frame     db 0    ; Índice do frame atual da animacao
 p1_cor       db azul    ; azul
 
 p2_pos_x     dw 480
 p2_pos_y     dw 160
-p2_tam_braco db 64
-p2_tam_perna db 100
-p2_tam_corpo db 60
 p2_estado    db 0    ; 0: idle, 1: dir, 2: esq, 3: soco, 4: chute
 p2_frame     db 0    ; Índice do frame atual da animacao
 p2_cor       db vermelho    ; vermelho
+
+tam_corpo 	 dw 46
+tam_braco 	 dw 28
+tam_perna 	 dw 30
 ; ---------------------------------------------------------------------------------------------------------------------;
 
 segment stack stack						; Segmento da pilha -> SS
     resb 1024							; Reserva 1024 bytes para a pilha
 stacktop:								; Define ponteiro do topo da pilha -> SP
-
