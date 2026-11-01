@@ -27,6 +27,7 @@ segment code public class=CODE
 ; Entrada:
 ;   AL = cor (use preto para APAGAR)
 ;   AH = indice do frame da animacao (cada frame = 32 bytes em v_idle)
+;	BH = estado da animação (0 = idle, 1 = andando, 2 = soco, 3 = chute)
 ;   BL = espelho: 0 = olha para a direita, 1 = olha para a esquerda
 ;        (com espelho, os offsets X do frame tem o sinal invertido)
 ;   CX = X base (centro do tronco)
@@ -51,14 +52,32 @@ desenha_jogador:
         MOV     [espelho], BL
         MOV     [base_x], CX
         MOV     [base_y], DX
+        
+        ; Salva o frame (AH) e o estado (BH) temporariamente
+        PUSH    AX
+        PUSH    BX
 
-        ; DI = v_idle + frame * 32  (SHL com CL: 8086 nao aceita SHL reg,5)
-        MOV     AL, AH
+        ; Encontra o endereço base da animação a partir do Estado (BH)
+        MOV     AL, BH
+        XOR     AH, AH
+        SHL     AX, 1                   ; Multiplica estado por 2 (pois cada dw tem 2 bytes)
+        MOV     SI, AX
+        MOV     BX, [tabela_animacoes + SI] ; BX agora guarda o endereço da animação correta
+
+        ; Calcula o offset do Frame (antigo AH, que foi salvo na pilha)
+        POP     DX                      ; Restaura estado em DH, espelho em DL
+        POP     AX                      ; Restaura cor em AL, frame em AH
+        
+        PUSH    AX                      ; Salva AX de novo para não perder a cor
+        MOV     AL, AH                  ; Move o frame para AL
         XOR     AH, AH
         MOV     DI, AX
         MOV     CL, 5
-        SHL     DI, CL
-        ADD     DI, v_idle
+        SHL     DI, CL                  ; Multiplica frame por 32
+        
+        ; Soma o offset do frame com o endereço base da animação
+        ADD     DI, BX                  ; Em vez de ADD DI, v_idle
+        POP     AX                      ; Restaura AX original (com a cor)
 
         ; ---- cabeca: circulo cheio de raio 10, centro 10 px acima do ombro
         MOV     AX, [base_x]
@@ -715,7 +734,18 @@ base_x          DW      0           ; variaveis de trabalho de desenha_jogador
 base_y          DW      0
 espelho         DB      0
 
-; Frames da postura parada (idle). Cada frame: 8 pares (X,Y) = 32 bytes.
+
+; Tabela de ponteiros para as animações (cada endereço ocupa 1 word / 2 bytes)
+tabela_animacoes:
+        dw      v_idle      ; Estado 0
+        dw      v_anda      ; Estado 1
+        dw      v_soco      ; Estado 2
+        dw      v_chute     ; Estado 3
+
+; =============================================================================
+; Animação Estacionária (6 Frames)
+; Cada frame: 8 pares (X,Y) = 32 bytes.
+; =============================================================================
 v_idle:
     ; --- Frame 0 ---
     dw -20, -20,   3, -17     ; Braco Esquerdo  (articulacao, mao)
@@ -728,3 +758,82 @@ v_idle:
     dw  15, -15,  27,   4     ; Braco Direito
     dw -15, -71, -22, -84     ; Perna Esquerda
     dw  15, -71,  22, -85     ; Perna Direita (corrigido: joelho em +15)
+
+; =============================================================================
+; Animação de Caminhada (10 Frames)
+; Cada frame: 8 pares (X,Y) = 32 bytes.
+; =============================================================================
+v_anda:
+    ; --- Frame 0 (Perna Dir frente, Perna Esq esticada atrás) ---
+    dw -20, -20,   3, -17     ; Braço Esq (Guarda, posição inicial)
+    dw  15, -15,  27,   4     ; Braço Dir 
+    dw -15, -64, -24, -84     ; Perna Esq (Atrás, prestes a subir)
+    dw  15, -64,  24, -84     ; Perna Dir (Frente, plantada no chão)
+
+    ; --- Frame 1 (Transição) ---
+    dw -19, -21,   4, -18     ; Braço Esq (Balanço leve para cima)
+    dw  14, -16,  26,   3     ; Braço Dir 
+    dw -10, -62, -10, -75     ; Perna Esq (Joelho dobra, pé sai do chão)
+    dw  10, -66,  12, -84     ; Perna Dir (Deslizando para trás)
+
+    ; --- Frame 2 (Cruzamento - Perna do ar passa pela perna do chão) ---
+    dw -18, -22,   5, -19     ; Braço Esq (Ponto mais alto do balanço)
+    dw  13, -17,  25,   2     ; Braço Dir 
+    dw  10, -58,   5, -70     ; Perna Esq (No ar, cruzando o centro)
+    dw   5, -67,   0, -84     ; Perna Dir (No centro do corpo)
+
+    ; --- Frame 3 (Alcançando a frente) ---
+    dw -19, -21,   4, -18     ; Braço Esq (Descendo)
+    dw  14, -16,  26,   3     ; Braço Dir 
+    dw  18, -62,  15, -75     ; Perna Esq (Descendo à frente)
+    dw  -5, -66, -12, -84     ; Perna Dir (Continuando para trás)
+
+    ; --- Frame 4 (Pré-contato) ---
+    dw -20, -20,   3, -17     ; Braço Esq (Volta ao centro)
+    dw  15, -15,  27,   4     ; Braço Dir 
+    dw  17, -63,  22, -80     ; Perna Esq (Calcanhar quase tocando o chão)
+    dw -15, -64, -24, -84     ; Perna Dir (Máxima extensão atrás)
+
+    ; --- Frame 5 (Inversão de Passo - Perna Esq frente, Perna Dir atrás) ---
+    dw -21, -19,   2, -16     ; Braço Esq (Balanço leve para baixo)
+    dw  16, -14,  28,   5     ; Braço Dir 
+    dw  15, -64,  24, -84     ; Perna Esq (Frente, plantada no chão)
+    dw -15, -64, -24, -84     ; Perna Dir (Atrás, prestes a subir)
+
+    ; --- Frame 6 (Transição 2) ---
+    dw -22, -18,   1, -15     ; Braço Esq 
+    dw  17, -13,  29,   6     ; Braço Dir 
+    dw  10, -66,  12, -84     ; Perna Esq (Deslizando para trás)
+    dw -10, -62, -10, -75     ; Perna Dir (Joelho dobra, pé sai do chão)
+
+    ; --- Frame 7 (Cruzamento 2) ---
+    dw -23, -17,   0, -14     ; Braço Esq (Ponto mais baixo do balanço)
+    dw  18, -12,  30,   7     ; Braço Dir 
+    dw   5, -67,   0, -84     ; Perna Esq (No centro do corpo)
+    dw  10, -58,   5, -70     ; Perna Dir (No ar, cruzando o centro)
+
+    ; --- Frame 8 (Alcançando a frente 2) ---
+    dw -22, -18,   1, -15     ; Braço Esq (Subindo)
+    dw  17, -13,  29,   6     ; Braço Dir 
+    dw  -5, -66, -12, -84     ; Perna Esq (Continuando para trás)
+    dw  18, -62,  15, -75     ; Perna Dir (Descendo à frente)
+
+    ; --- Frame 9 (Pré-contato 2) ---
+    dw -21, -19,   2, -16     ; Braço Esq (Quase no centro)
+    dw  16, -14,  28,   5     ; Braço Dir 
+    dw -15, -64, -24, -84     ; Perna Esq (Máxima extensão atrás)
+    dw  17, -63,  22, -80     ; Perna Dir (Calcanhar quase tocando o chão)
+
+v_soco:
+	; --- Frame 0 ---
+    dw -20, -20,   3, -17     ; Braco Esquerdo  (articulacao, mao)
+    dw  15, -15,  27,   4     ; Braco Direito
+    dw -15, -71, -22, -84     ; Perna Esquerda  (joelho, pe)
+    dw  15, -71,  22, -84     ; Perna Direita
+
+v_chute:
+	; --- Frame 0 ---
+    dw -20, -20,   3, -17     ; Braco Esquerdo  (articulacao, mao)
+    dw  15, -15,  27,   4     ; Braco Direito
+    dw -15, -71, -22, -84     ; Perna Esquerda  (joelho, pe)
+    dw  15, -71,  22, -84     ; Perna Direita
