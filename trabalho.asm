@@ -114,7 +114,13 @@ loop_jogo:
         ; ---- 4. Vira os lutadores um para o outro --------------------------
         CALL    atualiza_direcao
 
-        ; ---- 5. Redesenha apenas se algo mudou -----------------------------
+        ; ---- 5. Atualiza frames de animação --------------------------------
+        MOV     SI, jogador1
+        CALL    atualiza_animacao
+        MOV     SI, jogador2
+        CALL    atualiza_animacao
+
+        ; ---- 6. Redesenha apenas se algo mudou -----------------------------
         CALL    houve_mudanca               ; retorna AL = 1 se precisa redesenhar
         CMP     AL, 0
         JE      loop_jogo
@@ -188,24 +194,31 @@ te_fim:
 ; =============================================================================
 le_controles:
         PUSH    AX
+        PUSH    BX
         PUSH    SI
         PUSH    DI
 
+        XOR     BX, BX
         ; ------------------------- Jogador 1 (W / A / D)
         MOV     SI, jogador1
         MOV     DI, jogador2
         CMP     byte [teclas+TEC_W], 0
         JE      lc_p1_esq
+        INC     BL
         CALL    inicia_pulo
 lc_p1_esq:
         CMP     byte [teclas+TEC_A], 0
         JE      lc_p1_dir
+        INC     BL
         MOV     AX, -VELOCIDADE
+        MOV     byte [jogador1 + JESTADO], 1
         CALL    mover_jogador
 lc_p1_dir:
         CMP     byte [teclas+TEC_D], 0
         JE      lc_p2
+        INC     BL
         MOV     AX, VELOCIDADE
+        MOV     byte [jogador1 + JESTADO], 1
         CALL    mover_jogador
 
         ; ------------------------- Jogador 2 (setas)
@@ -214,20 +227,34 @@ lc_p2:
         MOV     DI, jogador1
         CMP     byte [teclas+TEC_CIMA], 0
         JE      lc_p2_esq
+        INC     BH
         CALL    inicia_pulo
 lc_p2_esq:
         CMP     byte [teclas+TEC_ESQ], 0
         JE      lc_p2_dir
+        INC     BH
         MOV     AX, -VELOCIDADE
+        MOV     byte [jogador2 + JESTADO], 1
         CALL    mover_jogador
 lc_p2_dir:
         CMP     byte [teclas+TEC_DIR], 0
         JE      lc_fim
+        INC     BH
         MOV     AX, VELOCIDADE
+        MOV     byte [jogador2 + JESTADO], 1
         CALL    mover_jogador
 lc_fim:
+        CMP     BL, 0
+        JNE     movp2
+        MOV     byte [jogador1 + JESTADO], 0
+movp2:
+        CMP     BH, 0
+        JNE     lc_fim2
+        MOV     byte [jogador2 + JESTADO], 0
+lc_fim2:
         POP     DI
         POP     SI
+        POP     BX
         POP     AX
         RET
 
@@ -408,6 +435,9 @@ jogador_mudou:
         MOV     BL, [SI+JFRAME]
         CMP     BL, [SI+JFRAMEANT]
         JNE     jm_fim
+        MOV     BL, [SI+JESTADO]
+        CMP     BL, [SI+JESTADOANT]
+        JNE     jm_fim
         MOV     BL, [SI+JDIR]
         CMP     BL, [SI+JDIRANT]
         JNE     jm_fim
@@ -429,15 +459,46 @@ pinta_jogador:
         MOV     AL, [SI+JCOR]
         MOV     AH, [SI+JFRAME]
         MOV     BL, [SI+JDIR]
+        MOV     BH, [SI+JESTADO]
         MOV     CX, [SI+JX]
         MOV     DX, [SI+JY]
         CALL    desenha_jogador             ; preserva todos os registradores
         MOV     [SI+JXANT], CX
         MOV     [SI+JYANT], DX
         MOV     [SI+JFRAMEANT], AH
+        MOV     [SI+JESTADOANT], BH
         MOV     [SI+JDIRANT], BL
         POP     DX
         POP     CX
+        POP     BX
+        POP     AX
+        RET
+
+; =============================================================================
+; atualiza_animacao
+; Entrada: SI = jogador. 
+; Incrementa o frame atual e faz o loop (zera) se atingir o limite do estado.
+; =============================================================================
+atualiza_animacao:
+        PUSH    AX
+        PUSH    BX
+
+        ; 1. Lê o estado atual do jogador
+        MOV     BL, [SI+JESTADO]
+        XOR     BH, BH              ; BX = JESTADO
+
+        ; 2. Pega o número máximo de frames para este estado
+        MOV     AL, [limite_frames + BX] 
+
+        ; 3. Incrementa o frame
+        INC     byte [SI+JFRAME]
+
+        ; 4. Verifica se estourou o limite
+        CMP     [SI+JFRAME], AL
+        JL      aa_fim              ; Se frame < limite, termina
+        MOV     byte [SI+JFRAME], 0 ; Se chegou no limite, volta pro frame 0
+
+aa_fim:
         POP     BX
         POP     AX
         RET
@@ -454,6 +515,7 @@ apaga_jogador:
         MOV     AL, preto
         MOV     AH, [SI+JFRAMEANT]
         MOV     BL, [SI+JDIRANT]
+        MOV     BH, [SI+JESTADOANT]
         MOV     CX, [SI+JXANT]
         MOV     DX, [SI+JYANT]
         CALL    desenha_jogador
@@ -704,6 +766,7 @@ JESTADO         EQU     14          ; db  0 idle, 1 dir, 2 esq, 3 soco, 4 chute.
 JVY             EQU     16          ; dw  velocidade vertical (positiva = sobe)
 JPULO           EQU     18          ; db  1 = no ar, 0 = no chao
                                     ; byte 19: reserva (alinhamento)
+JESTADOANT      EQU     19          ; 
 
 ; Y_CHAO = 156 deixa os pes (offset -84 do frame) logo acima do chao (Y = 70)
 jogador1:
@@ -718,6 +781,7 @@ jogador1:
         DW      0                   ; JVY
         DB      0                   ; JPULO
         DB      0                   ; reserva
+        DB      0                   ; JESTADOANT
 
 jogador2:
         DW      490, Y_CHAO         ; JX, JY
@@ -731,8 +795,13 @@ jogador2:
         DW      0                   ; JVY
         DB      0                   ; JPULO
         DB      0                   ; reserva
+        DB      0                   ; JESTADOANT
 
 ; =============================================================================
+
+; Limites de frames para cada estado
+limite_frames 	db 	1, 10, 1, 1 ; Idle, andar, soco, chute
+
 segment stack stack
         resb    1024
 stacktop:
