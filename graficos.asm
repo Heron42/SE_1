@@ -1,185 +1,138 @@
-segment code
+; =============================================================================
+; graficos.asm  -  Rotinas graficas do Jogo de Luta (modo 12h, 640x480x16)
+; -----------------------------------------------------------------------------
+; desenha_jogador : desenha um lutador completo (generica para P1 e P2)
+; cursor, caracter, plot_xy, circle, full_circle, line, linha_grossa
+; Coordenadas no sistema de plot_xy: Y = 0 embaixo, Y = 479 em cima.
+; =============================================================================
 
-global idle
-global perso1
-global linha_grossa
-global line
-global full_circle
-global circle
+global  desenha_jogador
+global  cursor
+global  caracter
+global  plot_xy
+global  circle
+global  full_circle
+global  line
+global  linha_grossa
 
-idle:
-        PUSH    AX
-        PUSH    BX
-        PUSH    CX
-        PUSH    DX
-        PUSH    DI
-        PUSH    SI
+extern  cor                     ; trabalho.asm
+extern  deltAX                  ; trabalho.asm
+extern  deltay                  ; trabalho.asm
+extern  tam_corpo               ; trabalho.asm
 
-        ; Define a cor do jogador
-        MOV     AL, [p1_cor]
-        MOV     byte [cor], AL
+segment code public class=CODE
 
-        ; Calcula qual frame ler: Endereço = vetor_idle + (p1_frame * 32)
-        XOR     AH, AH
-        MOV     AL, [p1_frame]
-        MOV     SI, AX          
-        SHL     SI, 5           ; Multiplica SI por 32 (Shift Left 5 bits = * 32)
-        LEA     DI, [v_idle + SI] ; DI agora aponta para o início do frame atual
-
-        MOV     CX, 8           ; O loop rodará 8 vezes (8 pares de coordenadas X,Y)
-
-loop_empilha_frame:
-        ; Lê o offset de X do vetor, soma com a posição atual e empilha
-        MOV     AX, [p1_pos_x]
-        ADD     AX, [DI]        ; AX = Pos_X_Real + Offset_X
-        PUSH    AX
-        ADD     DI, 2           ; Avança 2 bytes no vetor (próxima word)
-
-        ; Lê o offset de Y do vetor, soma com a posição atual e empilha
-        MOV     BX, [p1_pos_y]
-        ADD     BX, [DI]        ; BX = Pos_Y_Real + Offset_Y
-        PUSH    BX
-        ADD     DI, 2           ; Avança 2 bytes no vetor para o próximo X
-        
-        LOOP    loop_empilha_frame ; Decrementa CX; se CX > 0, volta para loop_empilha_frame
-
-        ; Após o loop, todos os 16 parâmetros estão na pilha na ordem perfeita
-        CALL    perso1
-
-        POP     SI
-        POP     DI
-        POP     DX
-        POP     CX
-        POP     BX
-        POP     AX
-        RET
 ;-----------------------------------------------------------------------------
-;função perso1
-; Parâmetros:
-; push xbe1 (+34), push ybe1, push xbe2, push ybe2, push xbd1, push ybd1, push xbd2, push ybd2
-; push xpe1, push ype1, push xpe2, push ype2, push xpd1, push ypd1 (+8), push xpd2 (+6), push ypd2 (+4)
-; RET 32
-perso1:
-		PUSH 	BP
-		MOV 	BP, SP
+; desenha_jogador
+; Entrada:
+;   AL = cor (use preto para APAGAR)
+;   AH = indice do frame da animacao (cada frame = 32 bytes em v_idle)
+;   BL = espelho: 0 = olha para a direita, 1 = olha para a esquerda
+;        (com espelho, os offsets X do frame tem o sinal invertido)
+;   CX = X base (centro do tronco)
+;   DX = Y base (altura dos ombros)
+; Preserva todos os registradores e flags.
+;
+; Formato de um frame (8 pontos X,Y relativos ao ombro):
+;   braco esq: articulacao, mao   | braco dir: articulacao, mao
+;   perna esq: joelho, pe         | perna dir: joelho, pe
+; Bracos partem do ombro (X, Y); pernas partem do quadril (X, Y - tam_corpo).
+;-----------------------------------------------------------------------------
+desenha_jogador:
+        PUSHF
         PUSH    AX
         PUSH    BX
         PUSH    CX
         PUSH    DX
+        PUSH    SI
+        PUSH    DI
 
-        MOV     AX, [p1_pos_x]
-        MOV     BX, [p1_pos_y]
-cabeca1:
-        ADD     BX, 10
-        MOV     CX, 10
+        MOV     [cor], AL
+        MOV     [espelho], BL
+        MOV     [base_x], CX
+        MOV     [base_y], DX
+
+        ; DI = v_idle + frame * 32  (SHL com CL: 8086 nao aceita SHL reg,5)
+        MOV     AL, AH
+        XOR     AH, AH
+        MOV     DI, AX
+        MOV     CL, 5
+        SHL     DI, CL
+        ADD     DI, v_idle
+
+        ; ---- cabeca: circulo cheio de raio 10, centro 10 px acima do ombro
+        MOV     AX, [base_x]
         PUSH    AX
-        PUSH    BX
-        PUSH    CX
+        MOV     AX, [base_y]
+        ADD     AX, 10
+        PUSH    AX
+        MOV     AX, 10
+        PUSH    AX
         CALL    full_circle
-corpo1:
-        MOV     AX, [p1_pos_x]
-        MOV     BX, [p1_pos_y]
-        MOV     CX, BX
-        SUB     CX, [tam_corpo]
-        MOV     DX, AX
+
+        ; ---- tronco: do ombro ate o quadril
+        MOV     AX, [base_x]
         PUSH    AX
-        PUSH    BX
-        PUSH    DX
-        PUSH    CX
-        CALL    linha_grossa
-pernas1:
-    esquerda1:
-        MOV     AX, [p1_pos_x]
-        MOV     BX, [p1_pos_y]
-        SUB     BX, [tam_corpo]
-        MOV     CX, [bp + 18]
-        MOV     DX, [bp + 16]
+        MOV     AX, [base_y]
         PUSH    AX
-        PUSH    BX
-        PUSH    CX
-        PUSH    DX
+        MOV     AX, [base_x]
+        PUSH    AX
+        MOV     AX, [base_y]
+        SUB     AX, [tam_corpo]
+        PUSH    AX
         CALL    linha_grossa
 
-		MOV     AX, cx
-        MOV     BX, dx
-        MOV     CX, [bp + 14]
-        MOV     DX, [bp + 12]
-        PUSH    AX
-        PUSH    BX
-        PUSH    CX
-        PUSH    DX
-        CALL    linha_grossa
+        ; ---- 4 membros, cada um com 2 segmentos
+        MOV     CX, 4
+dj_membro:
+        MOV     AX, [base_x]            ; origem do membro
+        MOV     BX, [base_y]
+        CMP     CX, 2
+        JA      dj_origem               ; CX = 4, 3 -> bracos (saem do ombro)
+        SUB     BX, [tam_corpo]         ; CX = 2, 1 -> pernas (saem do quadril)
+dj_origem:
+        PUSH    AX                      ; x1 = origem
+        PUSH    BX                      ; y1
+        CALL    le_ponto                ; AX,BX = articulacao (cotovelo/joelho)
+        PUSH    AX                      ; x2
+        PUSH    BX                      ; y2
+        CALL    linha_grossa            ; origem -> articulacao
 
-    direita1:
-        MOV     AX, [p1_pos_x]
-        MOV     BX, [p1_pos_y]
-		SUB 	BX, [tam_corpo]
-        MOV     CX, [bp + 10]
-        MOV     DX, [bp + 8]
-        PUSH    AX
-        PUSH    BX
-        PUSH    CX
-        PUSH    DX
-        CALL    linha_grossa
+        PUSH    AX                      ; x1 = articulacao (linha_grossa preserva AX/BX)
+        PUSH    BX                      ; y1
+        CALL    le_ponto                ; AX,BX = extremidade (mao/pe)
+        PUSH    AX                      ; x2
+        PUSH    BX                      ; y2
+        CALL    linha_grossa            ; articulacao -> extremidade
 
-		MOV     AX, cx
-        MOV     BX, dx
-        MOV     CX, [bp + 6]
-        MOV     DX, [bp + 4]
-        PUSH    AX
-        PUSH    BX
-        PUSH    CX
-        PUSH    DX
-        CALL    linha_grossa
-bracos1:
-    esquerdo1:
-        MOV     AX, [p1_pos_x]
-        MOV     BX, [p1_pos_y]
-        MOV     CX, [bp + 34]
-        MOV     DX, [bp + 32]
-        PUSH    AX
-        PUSH    BX
-        PUSH    CX
-        PUSH    DX
-        CALL    linha_grossa
+        LOOP    dj_membro
 
-		MOV     AX, CX
-        MOV     BX, DX
-        MOV     CX, [bp + 30]
-        MOV     DX, [bp + 28]
-        PUSH    AX
-        PUSH    BX
-        PUSH    CX
-        PUSH    DX
-        CALL    linha_grossa
-
-    direito1:
-        MOV     AX, [p1_pos_x]
-        MOV     BX, [p1_pos_y]
-        MOV     CX, [bp + 26]
-        MOV     DX, [bp + 24]
-        PUSH    AX
-        PUSH    BX
-        PUSH    CX
-        PUSH    DX
-        CALL    linha_grossa
-
-		MOV     AX, CX
-        MOV     BX, DX
-        MOV     CX, [bp + 22]
-        MOV     DX, [bp + 20]
-        PUSH    AX
-        PUSH    BX
-        PUSH    CX
-        PUSH    DX
-        CALL    linha_grossa
-fim_perso1:
+        POP     DI
+        POP     SI
         POP     DX
         POP     CX
         POP     BX
         POP     AX
-		POP 	BP
-        RET		32
+        POPF
+        RET
+
+;-----------------------------------------------------------------------------
+; le_ponto (uso interno de desenha_jogador)
+; Le um par (offX, offY) em [DI], aplica o espelho e soma a base.
+; Saida: AX = X absoluto, BX = Y absoluto, DI avancado 4 bytes.
+;-----------------------------------------------------------------------------
+le_ponto:
+        MOV     AX, [DI]
+        CMP     byte [espelho], 0
+        JE      lp_sem_espelho
+        NEG     AX
+lp_sem_espelho:
+        ADD     AX, [base_x]
+        MOV     BX, [DI+2]
+        ADD     BX, [base_y]
+        ADD     DI, 4
+        RET
+
 ;-----------------------------------------------------------------------------
 ;função cursor
 ; Parametros:
@@ -755,39 +708,23 @@ fim_line:
 		RET		8
 ; ------------------------------------------------------------------------------------------;
 
-segment data
+;*****************************************************************************
+segment data public class=DATA
 
-extern cor
-extern modo_anterior
-extern linha
-extern coluna
-extern deltAX
-extern deltay
-extern mens
+base_x          DW      0           ; variaveis de trabalho de desenha_jogador
+base_y          DW      0
+espelho         DB      0
 
-extern p1_pos_x
-extern p1_pos_y
-extern p1_estado
-extern p1_frame
-extern p1_cor
-
-extern p2_pos_x
-extern p2_pos_y
-extern p2_estado
-extern p2_frame
-extern p2_cor
-
-extern tam_corpo
-
+; Frames da postura parada (idle). Cada frame: 8 pares (X,Y) = 32 bytes.
 v_idle:
     ; --- Frame 0 ---
-    dw -20, -20,  3, -17     ; Braço Esquerdo
-    dw  15, -15, 27,   4     ; Braço Direito
-    dw -15, -71, -22, -84    ; Perna Esquerda
-    dw  15, -71,  22, -84    ; Perna Direita
+    dw -20, -20,   3, -17     ; Braco Esquerdo  (articulacao, mao)
+    dw  15, -15,  27,   4     ; Braco Direito
+    dw -15, -71, -22, -84     ; Perna Esquerda  (joelho, pe)
+    dw  15, -71,  22, -84     ; Perna Direita
 
     ; --- Frame 1 ---
-    dw -20, -22,  3, -19     ; Braço Esquerdo
-    dw  15, -15, 27,   4     ; Braço Direito
-    dw -15, -71, -22, -84    ; Perna Esquerda
-    dw -15, -71,  22, -85    ; Perna Direita
+    dw -20, -22,   3, -19     ; Braco Esquerdo
+    dw  15, -15,  27,   4     ; Braco Direito
+    dw -15, -71, -22, -84     ; Perna Esquerda
+    dw  15, -71,  22, -85     ; Perna Direita (corrigido: joelho em +15)

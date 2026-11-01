@@ -1,303 +1,738 @@
-; Teclado IBM com porta DIN (descontinuado mas o mecanismo de comunicação continua!)
-; https://www.xataka.com/perifericos/clac-cataclac-clac-el-legendario-teclado-ibm-model-f-vuelve-a-la-vida-por-360-dolares-puede-ser-tuyo
+; =============================================================================
+; trabalho.asm  -  Jogo de Luta em Assembly 8086 (modulo principal)
+; -----------------------------------------------------------------------------
+; Responsabilidades deste modulo:
+;   - inicializacao (segmentos, vetores de interrupcao, modo de video)
+;   - ISR de teclado (INT 9h) com TABELA DE ESTADO + buffer de eventos
+;   - ISR de relogio (INT 8h) gerando o "tique" do loop do jogo
+;   - loop principal sincronizado com o relogio
+;   - movimentacao dos dois jogadores
+;   - restauracao do sistema na saida
+;
+; Controles implementados nesta versao:
+;   Jogador 1: A = esquerda, D = direita, W = pular
+;   Jogador 2: seta esquerda, seta direita, seta cima = pular
+;   ESC      : sai do programa (provisorio; o Q com confirmacao vem depois)
+;
+; Mecanica de orientacao:
+;   - Os lutadores estao SEMPRE virados um para o outro (atualiza_direcao).
+;   - No chao, um nao atravessa o outro (DIST_MIN).
+;   - Pulando, o lutador pode passar por cima do adversario e trocar de lado;
+;     ao pousar sobreposto, ele e empurrado para o lado em que caiu.
+;
+; Montagem (2 modulos):
+;   nasm16 -f obj -o trabalho.obj -l trabalho.lst trabalho.asm
+;   nasm16 -f obj -o graficos.obj -l graficos.lst graficos.asm
+;   (ligar trabalho.obj + graficos.obj com o linker usado na disciplina)
+; =============================================================================
 
-; Tecla 1 (Esc) gera código Make 1, Teclar 2 (1) código Make 2, Teclar 3 (2) código Make 3 ... ~~ 88 teclas
+; ------------------------------- Simbolos externos / publicos -----------------
+extern  desenha_jogador         ; graficos.asm
+extern  line                    ; graficos.asm
 
-; Break (liverar a tecla) faz 80h + código Make da tecla, -> Por exemplo a tecla 2 -> Códimo Make = 3, e Código Break = 80h+3 = 83h
+global  cor
+global  deltAX
+global  deltay
+global  tam_corpo
 
-; Cada dado do teclado é transferido de forma serial do 8048. A trama é composta por 10 bits, sendo 2 de sincronização (74LS175) com o clock do porcessador PCLK 
-; e 8 bits do código Make ou Break da tecla, ou seja, 11XXXXXXXX, dois pusos de sincronização "11" e o código da tecla "XXXXXXXX"
-
-segment code
+; =============================================================================
+segment code public class=CODE
 ..start:
-; ---------------------------------------------- Inicialização dos registradores --------------------------------------------;
-		MOV 	AX,data					; Inicializa o registrador de Segmento de Dados DS
-		MOV 	DS,AX
-		MOV 	AX,stack				; Inicializa o registrador de Segmento de Pilha SS
-		MOV 	SS,AX
-		MOV 	SP,stacktop				; Inicializa o apontador de Pilha SP
-; ---------------------------------------------------------------------------------------------------------------------------;
+; ---------------------------------------------- Inicializacao dos registradores
+        MOV     AX, data
+        MOV     DS, AX
+        MOV     AX, stack
+        MOV     SS, AX
+        MOV     SP, stacktop
 
-; ---------------------------------------------- Alocação das Interrupções --------------------------------------------;
-
-		CLI								; Deshabilita INTerrupções por hardware - pin INTR NÃO atende INTerrupções externas	
-        XOR     AX, AX					; Limpa o registrador AX, é equivalente a fazer "MOV AX,0"
-        MOV     ES, AX					; Inicializa o registrador de Segmento Extra ES para acessar à região de vetores de INTerrupção (posição zero de memoria)
-        MOV     AX, [ES:INT9*4]			; Carrega em AX o valor do IP do vector de INTerrupção 9 
-        MOV     [offset_tec], AX    	; Salva na variável offset_dos o valor do IP do vector de INTerrupção 9
-        MOV     AX, [ES:INT9*4+2]   	; Carrega em AX o valor do CS do vector de INTerrupção 9
-        MOV     [cs_tec], AX			; Salva na variável cs_dos o valor do CS do vector de INTerrupção 9     
-        MOV     [ES:INT9*4+2], CS		; Atualiza o valor do CS do vector de INTerrupção 9 com o CS do programa atual 
-        MOV     WORD [ES:INT9*4],keyINT	; Atualiza o valor do IP do vector de INTerrupção 9 com o offset "keyINT" do programa atual
-
-        XOR 	AX, AX						; Limpa o registrador AX, é equivALente a fazer "MOV AX,0"
-		MOV 	ES, AX						; Inicializa o registrador de Segmento Extra ES para acessar à região de vetores de INTerrupção (posição zero de memoria)
-		MOV     AX, [ES:INTr*4]				; Carrega em AX o vALor do IP do vector de INTerrupção 8
-		MOV     [offset_clk], AX    		; Salva na variável offset_dos o vALor do IP do vector de INTerrupção 8
-		MOV     AX, [ES:INTr*4+2]   		; Carrega em AX o vALor do CS do vector de INTerrupção 8
-		MOV     [cs_clk], AX  				; Salva na variável cs_dos o vALor do CS do vector de INTerrupção 8   
-		MOV     [ES:INTr*4+2], CS			; Atualiza o valor do CS do vector de INTerrupção 8 com o CS do programa atuAL
-		MOV     WORD [ES:INTr*4],ClockINT	; Atualiza o valor do IP do vector de INTerrupção 8 com o offset "ClockINT" do programa atuAL
-        STI								; Habilita INTerrupções por hardware - pin INTR SIM atende INTerrupções externas
-; -----------------------------------------------------------------------------------------------------------------------------;
-
-; ---------------------------------------------- Inicialização do Modo Gráfico --------------------------------------------;
-;Salvar modo corrente de video(vendo como está o modo de video da maquina)
-        MOV  	AH,0Fh
-    	INT  	10h
-    	MOV  	[modo_anterior],AL   
-
-;Alterar modo de video para gráfico 640x480 16 cores
-    	MOV     	AL,12h
-   		MOV     	AH,0
-    	INT     	10h
-; -------------------------------------------------------------------------------------------------------------------------;
-
-; ---------------------------------------------- Funções gráficas --------------------------------------------;
-extern line
-extern idle
-extern perso1
-extern full_circle
-extern linha_grossa
-extern circle
-
-Desenho:
-		;mov byte[cor], vermelho
-		;mov ax, 100
-		;push ax
-		;mov ax, 240
-		;push ax
-		;mov ax, 600
-		;push ax
-		;mov ax, 240
-		;push ax
-		;CALL linha_grossa
-		;call perso1
-		;call perso2
-		call idle
-L1:
-        CMP byte [tique],0
-        JNE ab
-        jmp L1
-ab:
-        MOV     AX,[p_i]				; loop - se não tem tecla pulsada, não faz nada! p_i só é atualizado (p_i = p_i + 1) na Rotina de Serviço de INTerrupção (ISR) "keyINT" 
-        CMP     AX,[p_t]
-        JE      L1
-        INC     word[p_t]				; p_t - se atualiza (p_t = p_t + 1) só se p_i foi atualizado, ou seja, se teve tecla pulsada
-        AND     word[p_t],7				
-        MOV     BX,[p_t]				; Carrega em BX o valor de p_t
+; ---------------------------------------------- Instalacao das ISRs (INT 9 e INT 8)
+        CLI                                 ; desabilita interrupcoes enquanto troca os vetores
         XOR     AX, AX
-        MOV     AL, [BX+tecla]			; Carrega em AL o valor da variável tecla (variável atualizada durante a ISR) mais o offset BX, AL <- [BX+tecla]  
-        MOV     [tecla_u],AL			; Transfere o valor de AL (no caso o valor da tecla - Código Make/Break) para variável "tecla_u"
-        
-		MOV     BL, 16					; Como AL contem o valor do código Make da tecla pulsada ou código Break da tecla liverada carrega BL com 16
-        DIV     BL						; para dividir por 16 e representar em Hexa o valor do código Make/Break - "Lembrar que Cociente fical em AL e residuo em AH"
-        ADD     AL, 30h					; Acrecenta 0x30 a AL para converter em ascii, por exemplo se for Make = 1, o ascii de 1 é 0x31			
-        CMP     AL, 3Ah                 ; Se a tecla pulsada for differente de número, ou seja, se for uma letra o valor é superior a 0x3A. Ver tabela ascii
-										; 
-        JB      continua				; Se for numero de 0 até 9, daria 0x30 até 0x39, então pula para "continua"
-        ADD     AL, 07h					; Se não for numero, acrescenta 7 para pular os carateres - ver tabela ascii
+        MOV     ES, AX                      ; ES = 0000h -> tabela de vetores
 
-continua:        
-        MOV     [teclasc], AL			; O cociente da divisão é transferido à variável "teclasc"
-        ADD     AH, 30h					; Repete o processo com o ressiduo: Acrescenta 0x30 para converter em ascii,
-        CMP     AH, 3Ah					; Verifica se é maior do que 0x39, ou seja, se é letra!
-        JB      continua1				; Se não, então é numero (0x30 até 0x39) e pula para "continua1"
-        ADD     AH, 07h					; Se não for numero, então é letra e acrescenta 7 para pular os carateres - ver tabela ascii
+        MOV     AX, [ES:INT9*4]             ; salva IP original da INT 9
+        MOV     [offset_tec], AX
+        MOV     AX, [ES:INT9*4+2]           ; salva CS original da INT 9
+        MOV     [cs_tec], AX
+        MOV     [ES:INT9*4+2], CS           ; instala nossa ISR de teclado
+        MOV     WORD [ES:INT9*4], keyINT
 
-continua1:
-        MOV     [teclasc+1], AH			; O ressiduo da divisão é transferido à variável "teclasc+1"
-        MOV     DX,teclasc				; Carrega endereço de teclasc
-        ;MOV     AH, 9 					; Imprimir string DOS, ou seja, imprime o valor em ascii da tecla pulsada. Por exemplo, se for tecla #2 ('1') imprime 02 (Make) ou 82 (Break)
-        ;INT     21h						; Chama INTerrupção por software para imprimir o valor!
-		
-        CMP     BYTE [tecla_u], 81h		; Se for pulsada a tecla ESC gera o código Break = 0x81, 
-        JE      fim						; Então pula para sair do programa!
-        JMP     L1						; Se não, pula para L1 e começa tudo de novo!
+        MOV     AX, [ES:INTr*4]             ; salva IP original da INT 8
+        MOV     [offset_clk], AX
+        MOV     AX, [ES:INTr*4+2]           ; salva CS original da INT 8
+        MOV     [cs_clk], AX
+        MOV     [ES:INTr*4+2], CS           ; instala nossa ISR de relogio
+        MOV     WORD [ES:INTr*4], ClockINT
+        STI                                 ; reabilita interrupcoes
 
-fim:										; Ao sair do programa temos que restaurar o CS:IP da INTerrupção 9, que incialmente alteramos nas linhas 26 e 27
-        CLI								; Deshabilita INTerrupções por hardware - pin INTR NÃO atende INTerrupções externas
+; ---------------------------------------------- Modo grafico
+        MOV     AH, 0Fh                     ; le o modo de video atual
+        INT     10h
+        MOV     [modo_anterior], AL
 
-        XOR     AX, AX					; Limpa o registrador AX, é equivalente a fazer "MOV AX,0"				
-        MOV     ES, AX					; Inicializa o registrador de Segmento Extra ES para acessar à região de vetores de INTerrupção (posição zero de memoria)
-        MOV     AX, [cs_tec]			; Carrega em AX o valor do CS do vector de INTerrupção 9 que foi salvo na variável cs_dos -> linha 25
-        MOV     [ES:INT9*4+2], AX		; Atualiza o valor do CS do vector de INTerrupção 9 que foi salvo na variável cs_dos
-        MOV     AX, [offset_tec]		; Carrega em AX o valor do IP do vector de INTerrupção 9 que foi salvo na variável offset_dos -> linha 23
-        MOV     [ES:INT9*4], AX 		; Atualiza o valor do IP do vector de INTerrupção 9 que foi salvo na variável offset_dos
+        MOV     AH, 0                       ; modo 12h: 640x480, 16 cores
+        MOV     AL, 12h
+        INT     10h
 
-        XOR     AX, AX						; Limpa o registrador AX, é equivalente a fazer "MOV AX,0"
-		MOV     ES, AX						; Inicializa o registrador de Segmento Extra ES para acessar à região de vetores de INTerrupção (posição zero de memoria)
-		MOV     AX, [cs_clk]				; Carrega em AX o valor do CS do vector de INTerrupção 8 que foi salvo na variável cs_dos -> linha 16
-		MOV     [ES:INTr*4+2], AX			; Atualiza o valor do CS do vector de INTerrupção 8 que foi salvo na variável cs_dos
-		MOV     AX, [offset_clk]			; Carrega em AX o valor do IP do vector de INTerrupção 8 que foi salvo na variável offset_dos				
-		MOV     [ES:INTr*4], AX 			; Atualiza o valor do IP do vector de INTerrupção 8 que foi salvo na variável offset_dos
+; ---------------------------------------------- Cena inicial
+        CALL    desenha_arena
+        MOV     SI, jogador1
+        CALL    pinta_jogador
+        MOV     SI, jogador2
+        CALL    pinta_jogador
 
-		MOV    	AH,08h
-		INT     21h
-	    MOV  	AH,0   				; set video mode
-	    MOV  	AL,[modo_anterior] 	; modo anterior
-	    INT  	10h
+        MOV     AX, [tique_jogo]            ; sincroniza o contador do loop
+        MOV     [ultimo_tique], AX
 
-		MOV     AH, 4Ch						; Carrega em AH o valor de 4Ch, parametro para INT 21h
-        INT     21h						; Chama Interrupção 21h para retornar o controle ao sistema operacional -> sai de forma segura da execução do programa
+; =============================================================================
+; LOOP PRINCIPAL
+; Roda uma vez a cada tique da INT 8h (~55 ms, 18,2 vezes por segundo).
+; Nao ha atraso por laco de software: o ritmo vem do temporizador 8253.
+; =============================================================================
+loop_jogo:
+        MOV     AX, [tique_jogo]
+        CMP     AX, [ultimo_tique]
+        JE      loop_jogo                   ; ainda no mesmo tique: espera
+        MOV     [ultimo_tique], AX
 
+        ; ---- 1. Eventos pontuais (buffer circular) -------------------------
+        CALL    trata_eventos
+        CMP     byte [sair_flag], 1
+        JE      fim
 
-; ---------------------------------------------- ISR de Teclado --------------------------------------------;
-keyINT:									; Este segmento de código só será executado se uma tecla for presionada, ou seja, se a INT 9h for acionada!
-        PUSH    AX						; Salva contexto na pilha
+        ; ---- 2. Teclas mantidas pressionadas (tabela de estado) ------------
+        CALL    le_controles
+
+        ; ---- 3. Fisica do pulo (gravidade e pouso) -------------------------
+        MOV     SI, jogador1
+        MOV     DI, jogador2
+        CALL    fisica_jogador
+        MOV     SI, jogador2
+        MOV     DI, jogador1
+        CALL    fisica_jogador
+
+        ; ---- 4. Vira os lutadores um para o outro --------------------------
+        CALL    atualiza_direcao
+
+        ; ---- 5. Redesenha apenas se algo mudou -----------------------------
+        CALL    houve_mudanca               ; retorna AL = 1 se precisa redesenhar
+        CMP     AL, 0
+        JE      loop_jogo
+
+        MOV     SI, jogador1                ; apaga os dois na posicao antiga...
+        CALL    apaga_jogador
+        MOV     SI, jogador2
+        CALL    apaga_jogador
+        MOV     SI, jogador1                ; ...e redesenha os dois na nova
+        CALL    pinta_jogador               ; (redesenhar ambos evita que um
+        MOV     SI, jogador2                ;  apague um pedaco do outro)
+        CALL    pinta_jogador
+
+        JMP     loop_jogo
+
+; =============================================================================
+; fim: restaura vetores e modo de video e devolve o controle ao DOS
+; =============================================================================
+fim:
+        CLI
+        XOR     AX, AX
+        MOV     ES, AX
+        MOV     AX, [cs_tec]                ; restaura INT 9
+        MOV     [ES:INT9*4+2], AX
+        MOV     AX, [offset_tec]
+        MOV     [ES:INT9*4], AX
+        MOV     AX, [cs_clk]                ; restaura INT 8
+        MOV     [ES:INTr*4+2], AX
+        MOV     AX, [offset_clk]
+        MOV     [ES:INTr*4], AX
+        STI
+
+        MOV     AH, 0                       ; restaura o modo de video original
+        MOV     AL, [modo_anterior]
+        INT     10h
+
+        MOV     AX, 4C00h                   ; retorna ao DOS
+        INT     21h
+
+; =============================================================================
+; trata_eventos
+; Consome o buffer circular de codigos (eventos de "pressionou uma vez").
+; Usado para teclas de comando (ESC agora; P, Q, Y, N, Enter depois).
+; =============================================================================
+trata_eventos:
+        PUSH    AX
         PUSH    BX
-        PUSH    DS
- ;       MOV     AX,data					; Carrega em AX o endereço de "data" -> Região do código onde encontra-se o segemeto de dados "Segment data" 			
- ;       MOV     DS,AX					; Atualiza registrador de segmento de dados DS, isso pode ser feito no inicio do programa!
-        IN      AL, kb_data				; Le a porta 60h, que é onde está o byte do Make/Break da tecla. Esse valor é fornecido pelo chip "8255 PPI"
-        INC     WORD [p_i]				; Incrementa p_i para indicar no loop principal que uma tecla foi acionada!
-        AND     WORD [p_i],7			
-        MOV     BX,[p_i]				; Carrega p_i em BX
-        MOV     [BX+tecla],al			; Transfere o valor Make/Break da tecla armacenado em AL "linha 84" para o segmento de dados com offset DX, na variável "tecla"
-        IN      AL, kb_ctl				; Le porta 61h, pois o bit mais significativo "bit 7" 
-        OR      AL, 80h					; Faz operação lógica OR com o bit mais significativo do registrador AL (1XXXXXXX) -> Valor lido da porta 61h 
-        OUT     kb_ctl, AL				; Seta o bit mais significativo da porta 61h
-        AND     AL, 7Fh					; Restablece o valor do bit mais significativo do registrador AL (0XXXXXXX), alterado na linha 90 	
-        OUT     kb_ctl, AL				; Reinicia o registrador de dislocamento 74LS322 e Livera a interrupção "CLR do flip-flop 7474". O 8255 - Programmable Peripheral Interface (PPI) fica pronto para recever um outro código da tecla https://es.wikipedia.org/wiki/INTel_8255
-        MOV     AL, eoi					; Carrega o AL com a byte de End of Interruption, -> 20h por default
-        OUT     pictrl, AL				; Livera o PIC
-        
-		POP     DS						; Reestablece os registradores salvos na linha 79 
+te_prox:
+        MOV     AX, [p_i]
+        CMP     AX, [p_t]
+        JE      te_fim                      ; buffer vazio
+        INC     WORD [p_t]
+        AND     WORD [p_t], 7
+        MOV     BX, [p_t]
+        MOV     AL, [BX+tecla]
+        MOV     [tecla_u], AL
+
+        CMP     AL, TEC_ESC                 ; ESC pressionado (make 01h)
+        JNE     te_prox
+        MOV     byte [sair_flag], 1
+te_fim:
         POP     BX
         POP     AX
-        IRET							; Retorna da interrupção
-; ----------------------------------------------------------------------------------------------------------;
+        RET
 
-; ---------------------------------------------- ISR de Clock --------------------------------------------;
+; =============================================================================
+; le_controles
+; Le a tabela de estado do teclado e move os jogadores.
+; Como a tabela guarda cada tecla separadamente, os dois jogadores podem
+; segurar suas teclas ao mesmo tempo sem um bloquear o outro.
+; =============================================================================
+le_controles:
+        PUSH    AX
+        PUSH    SI
+        PUSH    DI
 
-ClockINT:									; Este segmento de código só será executado se um pulso de relojio está ativo, ou seja, se a INT 8h for acionada!
-		PUSH	AX							; Salva contexto na pilha							
-		PUSH	DS
-		MOV     AX,data						; Carrega em AX o endereço de "data" -> Região do código onde encontra-se o segemeto de dados "Segment data"
-		MOV     DS,AX						; Atualiza registrador de segmento de dados DS, isso pode ser feito no inicio do programa!	
-    
-		INC		byte [tique]				; Incremente variável tique toda vez que entra na interrupção
-		CMP		byte[tique], 18				; Compara variável "teique" com 18, isso para alterar os valores do relogio a cada segundo -> 18/18.2 ~1 segundo!
-		JB		Fimrel						; Se for menor que 18 pula para Fimrel
-		MOV 	byte [tique], 0				; Se não, limpa variável tique e  
-		INC 	byte [segundo]				; Incrementa variável segundo
-		CMP 	byte [segundo], 60			; Compara variável "segundo" com 60
-		JB   	Fimrel						; Se segundo for menor do que 60, pula para Fimrel
-		MOV 	byte [segundo], 0			; Se não, limpa segundo e
-		INC 	byte [minuto]				; Incrementa variável minuto
-		CMP 	byte [minuto], 60			; Compara variável "minuto" com 60
-		JB   	Fimrel						; Se minuto for menor do que 60, pula para Fimrel
-		MOV 	byte [minuto], 0			; Se não, limpa minuto e
-		INC 	byte [hora]					; Incrementa variável hora
-		CMP 	byte [hora], 24				; Compara variável "hora" com 24
-		JB   	Fimrel						; Se hora for menor do que 24, pula para Fimrel
-		MOV 	byte [hora], 0				; Se não, limpa hora	
-Fimrel:
-		MOV		AL,eoi						; Carrega o AL com a byte de End of Interruption, -> 20h por default						
-		OUT		20h,AL						; Livera o PIC que está na porta 20h
-		POP		DS							; Reestablece os registradores salvos na pilha na linha 46
-		POP		AX
-		IRET								; Retorna da interrupção
-; ----------------------------------------------------------------------------------------------------------;
+        ; ------------------------- Jogador 1 (W / A / D)
+        MOV     SI, jogador1
+        MOV     DI, jogador2
+        CMP     byte [teclas+TEC_W], 0
+        JE      lc_p1_esq
+        CALL    inicia_pulo
+lc_p1_esq:
+        CMP     byte [teclas+TEC_A], 0
+        JE      lc_p1_dir
+        MOV     AX, -VELOCIDADE
+        CALL    mover_jogador
+lc_p1_dir:
+        CMP     byte [teclas+TEC_D], 0
+        JE      lc_p2
+        MOV     AX, VELOCIDADE
+        CALL    mover_jogador
 
+        ; ------------------------- Jogador 2 (setas)
+lc_p2:
+        MOV     SI, jogador2
+        MOV     DI, jogador1
+        CMP     byte [teclas+TEC_CIMA], 0
+        JE      lc_p2_esq
+        CALL    inicia_pulo
+lc_p2_esq:
+        CMP     byte [teclas+TEC_ESQ], 0
+        JE      lc_p2_dir
+        MOV     AX, -VELOCIDADE
+        CALL    mover_jogador
+lc_p2_dir:
+        CMP     byte [teclas+TEC_DIR], 0
+        JE      lc_fim
+        MOV     AX, VELOCIDADE
+        CALL    mover_jogador
+lc_fim:
+        POP     DI
+        POP     SI
+        POP     AX
+        RET
 
-segment data
-; ---------------------------------------------- Variáveis de Interrupção do Teclado --------------------------------------------;
-        kb_data EQU 60h  				; PORTA DE LEITURA DE TECLADO
-        kb_ctl  EQU 61h  				; PORTA DE RESET PARA PEDIR NOVA INTERRUPCAO
-        pictrl  EQU 20h					; PORTA DO PIC DE TECLADO
-        eoi     EQU 20h					; Byte de final de interrupção PIC - resgistrador
-        INT9    EQU 9h					; Interrupção por hardware do teclado
-        cs_tec  DW  1					; Variável de 2 bytes para armacenar o CS da INT 9
-        offset_tec  DW 1				; Variável de 2 bytes para armacenar o IP da INT 9
-        tecla_u db 0
-        tecla   resb  8					; Variável de 8 bytes para armacenar a tecla presionada. Só precisa de 2 bytes!	 
-        p_i     dw  0   				; Indice p/ Interrupcao (Incrementa na ISR quando pressiona/solta qualquer tecla)  
-        p_t     dw  0   				; Indice p/ Interrupcao (Incrementa após retornar da ISR quando pressiona/solta qualquer tecla)    
-        teclasc DB  0,0,13,10,'$'		; Variável tipo char para printar o código Make/Break em hexadecimal
-; ------------------------------------------------------------------------------------------------------------------------------;
+; =============================================================================
+; mover_jogador
+; Entrada: SI = jogador que se move, DI = adversario, AX = deslocamento em X
+; So aplica o movimento se:
+;   - o jogador continuar dentro dos limites da arena, e
+;   - a distancia ate o adversario continuar >= DIST_MIN (nao atravessa).
+; Se QUALQUER um dos dois estiver no ar, a distancia nao e verificada:
+; e assim que um lutador passa por cima do outro e troca de lado.
+; =============================================================================
+mover_jogador:
+        PUSH    AX
+        PUSH    BX
+        ADD     AX, [SI+JX]                 ; AX = nova posicao X
+        CMP     AX, LIM_ESQ
+        JL      mj_fim                      ; passaria da parede esquerda
+        CMP     AX, LIM_DIR
+        JG      mj_fim                      ; passaria da parede direita
+        CMP     byte [SI+JPULO], 0          ; quem anda esta no ar?
+        JNE     mj_aceita
+        CMP     byte [DI+JPULO], 0          ; o adversario esta no ar?
+        JNE     mj_aceita
+        MOV     BX, AX
+        SUB     BX, [DI+JX]                 ; BX = nova_x - x_adversario
+        JNS     mj_abs
+        NEG     BX                          ; BX = |distancia|
+mj_abs:
+        CMP     BX, DIST_MIN
+        JL      mj_fim                      ; encostaria/atravessaria o adversario
+mj_aceita:
+        MOV     [SI+JX], AX                 ; movimento aceito
+mj_fim:
+        POP     BX
+        POP     AX
+        RET
 
-; ---------------------------------------------- Variáveis de Interrupção de Clock --------------------------------------------;
-		INTr	   	EQU 08h					; Interrupção por hardware do tick
-		char		DB	0
-		offset_clk	DW	0					; Variável de 2 bytes para armacenar o IP da INT 8
-		cs_clk		DW	0					; Variável de 2 bytes para armacenar o CS da INT 8
-		tique		DB  0					; Variável de 2 bytes que é incrementada a cada tick do clock ~54.9 ms 
-		segundo		DB  0					; Variável para os segundos
-		minuto 		DB  0					; Variável para os minutos
-		hora 		DB  0					; Variável para as horas
-		horario		DB  0,0,':',0,0,':',0,0,' ', 13,'$' ; Variável typo string para printar o relogio
-; ------------------------------------------------------------------------------------------------------------------------------;
+; =============================================================================
+; inicia_pulo
+; Entrada: SI = jogador. So pula se estiver no chao.
+; =============================================================================
+inicia_pulo:
+        CMP     byte [SI+JPULO], 0
+        JNE     ip_fim                      ; ja esta no ar: ignora
+        MOV     byte [SI+JPULO], 1
+        MOV     WORD [SI+JVY], VEL_PULO     ; velocidade vertical inicial (para cima)
+ip_fim:
+        RET
 
-; ---------------------------------------------- Variáveis do Modo Gráfico --------------------------------------------;
-		global cor
-        cor		db		branco_intenso
-                                    ; I R G B COR
-        pRETo			equ		0	; 0 0 0 0 pRETo
-        azul			equ		1	; 0 0 0 1 azul
-        verde			equ		2	; 0 0 1 0 verde
-        cyan			equ		3	; 0 0 1 1 cyan
-        vermelho		equ		4	; 0 1 0 0 vermelho
-        magenta			equ		5	; 0 1 0 1 magenta
-        marrom			equ		6	; 0 1 1 0 marrom
-        branco			equ		7	; 0 1 1 1 branco
-        cinza			equ		8	; 1 0 0 0 cinza
-        azul_claro		equ		9	; 1 0 0 1 azul claro
-        verde_claro		equ		10	; 1 0 1 0 verde claro
-        cyan_claro		equ		11	; 1 0 1 1 cyan claro
-        rosa			equ		12	; 1 1 0 0 rosa
-        magenta_claro	equ		13	; 1 1 0 1 magenta claro
-        amarelo			equ		14	; 1 1 1 0 amarelo
-        branco_intenso	equ		15	; 1 1 1 1 branco INTenso
+; =============================================================================
+; fisica_jogador
+; Entrada: SI = jogador, DI = adversario. Executada uma vez por tique.
+;   Y  <- Y + VY
+;   VY <- VY - GRAVIDADE
+; Ao tocar o chao (Y <= Y_CHAO): fixa Y no chao, zera VY, encerra o pulo
+; e resolve uma eventual sobreposicao com o adversario.
+; Com VEL_PULO = 22 e GRAVIDADE = 2 o pulo sobe 132 px e dura ~1,3 s
+; (os pes passam cerca de 30 px acima da cabeca do adversario).
+; =============================================================================
+fisica_jogador:
+        PUSH    AX
+        CMP     byte [SI+JPULO], 0
+        JE      fj_fim                      ; no chao: nada a fazer
+        MOV     AX, [SI+JVY]
+        ADD     [SI+JY], AX                 ; move na vertical
+        SUB     WORD [SI+JVY], GRAVIDADE    ; gravidade
+        CMP     WORD [SI+JY], Y_CHAO
+        JG      fj_fim                      ; ainda no ar
+        MOV     WORD [SI+JY], Y_CHAO        ; pousou
+        MOV     WORD [SI+JVY], 0
+        MOV     byte [SI+JPULO], 0
+        CALL    separa_ao_pousar
+fj_fim:
+        POP     AX
+        RET
 
-		global modo_anterior
-		global linha
-		global coluna
-		global deltAX
-		global deltay
-		global mens
+; =============================================================================
+; separa_ao_pousar
+; Entrada: SI = jogador que acabou de pousar, DI = adversario.
+; Se pousou a menos de DIST_MIN do adversario (que esta no chao), empurra
+; quem pousou para o lado em que caiu. Se a parede impedir, empurra o
+; adversario para o outro lado. Se o adversario ainda estiver no ar, a
+; separacao sera feita quando ELE pousar.
+; =============================================================================
+separa_ao_pousar:
+        PUSH    AX
+        PUSH    BX
+        CMP     byte [DI+JPULO], 0
+        JNE     sp_fim                      ; adversario no ar: resolve depois
+        MOV     AX, [SI+JX]
+        SUB     AX, [DI+JX]                 ; AX = x_pousou - x_adversario
+        MOV     BX, AX
+        JNS     sp_abs
+        NEG     BX
+sp_abs:
+        CMP     BX, DIST_MIN
+        JGE     sp_fim                      ; ja estao afastados o suficiente
 
-        modo_anterior	db		0
-        linha   		dw  	0
-        coluna  		dw  	0
-        deltAX			dw		0
-        deltay			dw		0	
-        mens    		db  	'Funcao Grafica'
-; ---------------------------------------------------------------------------------------------------------------------;
+        MOV     BX, [DI+JX]
+        CMP     AX, 0
+        JL      sp_esquerda
+        ; ---- caiu a direita (ou exatamente em cima): vai para a direita
+        ADD     BX, DIST_MIN
+        CMP     BX, LIM_DIR
+        JLE     sp_grava
+        MOV     BX, LIM_DIR                 ; parede direita: encosta nela...
+        MOV     AX, LIM_DIR - DIST_MIN
+        MOV     [DI+JX], AX                 ; ...e empurra o adversario
+        JMP     sp_grava
+sp_esquerda:
+        ; ---- caiu a esquerda: vai para a esquerda
+        SUB     BX, DIST_MIN
+        CMP     BX, LIM_ESQ
+        JGE     sp_grava
+        MOV     BX, LIM_ESQ                 ; parede esquerda: encosta nela...
+        MOV     AX, LIM_ESQ + DIST_MIN
+        MOV     [DI+JX], AX                 ; ...e empurra o adversario
+sp_grava:
+        MOV     [SI+JX], BX
+sp_fim:
+        POP     BX
+        POP     AX
+        RET
 
-; ---------------------------------------------- Variáveis do Jogo --------------------------------------------;
+; =============================================================================
+; atualiza_direcao
+; Mantem os lutadores sempre virados um para o outro:
+;   x1 < x2 -> J1 olha para a direita (0) e J2 para a esquerda (1)
+;   x1 > x2 -> J1 olha para a esquerda (1) e J2 para a direita (0)
+;   x1 = x2 -> (um sobre o outro, no pulo) mantem a direcao atual
+; A troca de direcao e detectada por houve_mudanca (JDIR x JDIRANT) e o
+; boneco e redesenhado espelhado automaticamente.
+; =============================================================================
+atualiza_direcao:
+        PUSH    AX
+        MOV     AX, [jogador1+JX]
+        CMP     AX, [jogador2+JX]
+        JE      ad_fim
+        JG      ad_invertido
+        MOV     byte [jogador1+JDIR], 0
+        MOV     byte [jogador2+JDIR], 1
+        JMP     ad_fim
+ad_invertido:
+        MOV     byte [jogador1+JDIR], 1
+        MOV     byte [jogador2+JDIR], 0
+ad_fim:
+        POP     AX
+        RET
 
-global p1_pos_x
-global p1_pos_y
-global p1_estado
-global p1_frame
-global p1_cor
+; =============================================================================
+; houve_mudanca
+; Saida: AL = 1 se algum jogador mudou de posicao/frame/direcao desde o
+;        ultimo desenho; AL = 0 caso contrario.
+; =============================================================================
+houve_mudanca:
+        PUSH    SI
+        MOV     SI, jogador1
+        CALL    jogador_mudou
+        CMP     AL, 1
+        JE      hm_fim
+        MOV     SI, jogador2
+        CALL    jogador_mudou
+hm_fim:
+        POP     SI
+        RET
 
-global p2_pos_x
-global p2_pos_y
-global p2_estado
-global p2_frame
-global p2_cor
+; Entrada: SI = jogador. Saida: AL = 1 se mudou, 0 se nao.
+jogador_mudou:
+        PUSH    BX
+        MOV     AL, 1
+        MOV     BX, [SI+JX]
+        CMP     BX, [SI+JXANT]
+        JNE     jm_fim
+        MOV     BX, [SI+JY]
+        CMP     BX, [SI+JYANT]
+        JNE     jm_fim
+        MOV     BL, [SI+JFRAME]
+        CMP     BL, [SI+JFRAMEANT]
+        JNE     jm_fim
+        MOV     BL, [SI+JDIR]
+        CMP     BL, [SI+JDIRANT]
+        JNE     jm_fim
+        MOV     AL, 0
+jm_fim:
+        POP     BX
+        RET
 
-global tam_corpo
+; =============================================================================
+; pinta_jogador
+; Entrada: SI = jogador. Desenha na posicao ATUAL, com a cor do jogador, e
+; guarda essa posicao/frame/direcao como "anterior" (para poder apagar depois).
+; =============================================================================
+pinta_jogador:
+        PUSH    AX
+        PUSH    BX
+        PUSH    CX
+        PUSH    DX
+        MOV     AL, [SI+JCOR]
+        MOV     AH, [SI+JFRAME]
+        MOV     BL, [SI+JDIR]
+        MOV     CX, [SI+JX]
+        MOV     DX, [SI+JY]
+        CALL    desenha_jogador             ; preserva todos os registradores
+        MOV     [SI+JXANT], CX
+        MOV     [SI+JYANT], DX
+        MOV     [SI+JFRAMEANT], AH
+        MOV     [SI+JDIRANT], BL
+        POP     DX
+        POP     CX
+        POP     BX
+        POP     AX
+        RET
 
-p1_pos_x     dw 160
-p1_pos_y     dw 160
-p1_estado    db 0    ; 0: idle, 1: dir, 2: esq, 3: soco, 4: chute
-p1_frame     db 0    ; Índice do frame atual da animacao
-p1_cor       db azul    ; azul
+; =============================================================================
+; apaga_jogador
+; Entrada: SI = jogador. Redesenha em PRETO na posicao ANTERIOR.
+; =============================================================================
+apaga_jogador:
+        PUSH    AX
+        PUSH    BX
+        PUSH    CX
+        PUSH    DX
+        MOV     AL, preto
+        MOV     AH, [SI+JFRAMEANT]
+        MOV     BL, [SI+JDIRANT]
+        MOV     CX, [SI+JXANT]
+        MOV     DX, [SI+JYANT]
+        CALL    desenha_jogador
+        POP     DX
+        POP     CX
+        POP     BX
+        POP     AX
+        RET
 
-p2_pos_x     dw 480
-p2_pos_y     dw 160
-p2_estado    db 0    ; 0: idle, 1: dir, 2: esq, 3: soco, 4: chute
-p2_frame     db 0    ; Índice do frame atual da animacao
-p2_cor       db vermelho    ; vermelho
+; =============================================================================
+; desenha_arena
+; Retangulo da arena: chao em Y = ARENA_BAIXO, teto em Y = ARENA_TOPO,
+; paredes em X = ARENA_ESQ e X = ARENA_DIR. A faixa acima do teto fica
+; reservada para o HUD (energia, tempo, rounds).
+; =============================================================================
+desenha_arena:
+        PUSH    AX
+        MOV     byte [cor], branco_intenso
 
-tam_corpo 	 dw 46
-tam_braco 	 dw 28
-tam_perna 	 dw 30
-; ---------------------------------------------------------------------------------------------------------------------;
+        MOV     AX, ARENA_ESQ               ; chao
+        PUSH    AX
+        MOV     AX, ARENA_BAIXO
+        PUSH    AX
+        MOV     AX, ARENA_DIR
+        PUSH    AX
+        MOV     AX, ARENA_BAIXO
+        PUSH    AX
+        CALL    line
 
-segment stack stack						; Segmento da pilha -> SS
-    resb 1024							; Reserva 1024 bytes para a pilha
-stacktop:								; Define ponteiro do topo da pilha -> SP
+        MOV     AX, ARENA_ESQ               ; teto
+        PUSH    AX
+        MOV     AX, ARENA_TOPO
+        PUSH    AX
+        MOV     AX, ARENA_DIR
+        PUSH    AX
+        MOV     AX, ARENA_TOPO
+        PUSH    AX
+        CALL    line
+
+        MOV     AX, ARENA_ESQ               ; parede esquerda
+        PUSH    AX
+        MOV     AX, ARENA_BAIXO
+        PUSH    AX
+        MOV     AX, ARENA_ESQ
+        PUSH    AX
+        MOV     AX, ARENA_TOPO
+        PUSH    AX
+        CALL    line
+
+        MOV     AX, ARENA_DIR               ; parede direita
+        PUSH    AX
+        MOV     AX, ARENA_BAIXO
+        PUSH    AX
+        MOV     AX, ARENA_DIR
+        PUSH    AX
+        MOV     AX, ARENA_TOPO
+        PUSH    AX
+        CALL    line
+
+        POP     AX
+        RET
+
+; =============================================================================
+; ISR de teclado (INT 9h)
+; Mantem duas estruturas:
+;   teclas[128] : 1 = tecla pressionada, 0 = solta (para movimento continuo)
+;   tecla[8]    : buffer circular de codigos (para comandos pontuais)
+; As setas chegam como E0h + codigo; o prefixo E0h e simplesmente ignorado,
+; de modo que seta esquerda = 4Bh, seta direita = 4Dh etc.
+; =============================================================================
+keyINT:
+        PUSH    AX
+        PUSH    BX
+        PUSH    DS
+        MOV     AX, data                    ; garante DS correto dentro da ISR
+        MOV     DS, AX
+
+        IN      AL, kb_data                 ; le o codigo make/break (porta 60h)
+        CMP     AL, 0E0h                    ; prefixo de tecla estendida
+        JE      ki_ack
+        CMP     AL, 0E1h                    ; prefixo da tecla Pause
+        JE      ki_ack
+
+        ; ---- grava no buffer circular (comandos)
+        INC     WORD [p_i]
+        AND     WORD [p_i], 7
+        MOV     BX, [p_i]
+        MOV     [BX+tecla], AL
+
+        ; ---- atualiza a tabela de estado (movimento)
+        MOV     BL, AL
+        AND     BX, 007Fh                   ; BX = codigo sem o bit 7 (e BH = 0)
+        TEST    AL, 80h                     ; bit 7 = 1 -> break (soltou)
+        JNZ     ki_solta
+        MOV     byte [teclas+BX], 1
+        JMP     ki_ack
+ki_solta:
+        MOV     byte [teclas+BX], 0
+
+ki_ack:
+        IN      AL, kb_ctl                  ; reconhece o dado na porta 61h
+        OR      AL, 80h
+        OUT     kb_ctl, AL
+        AND     AL, 7Fh
+        OUT     kb_ctl, AL
+        MOV     AL, eoi                     ; fim de interrupcao para o PIC
+        OUT     pictrl, AL
+
+        POP     DS
+        POP     BX
+        POP     AX
+        IRET
+
+; =============================================================================
+; ISR de relogio (INT 8h) - 18,2 Hz
+; Incrementa tique_jogo (ritmo do loop) e conta segundos (base para o
+; cronometro de 3 minutos do round). Ao final ENCADEIA a ISR original do
+; BIOS, que mantem o relogio do sistema e envia o EOI ao PIC.
+; =============================================================================
+ClockINT:
+        PUSH    AX
+        PUSH    DS
+        MOV     AX, data
+        MOV     DS, AX
+
+        INC     WORD [tique_jogo]           ; um "frame" do jogo
+
+        INC     byte [tique]                ; contagem de segundos
+        CMP     byte [tique], 18
+        JB      ck_chain
+        MOV     byte [tique], 0
+        INC     WORD [segundos]
+
+ck_chain:
+        PUSHF                               ; simula um INT para a ISR original
+        CALL    FAR [offset_clk]            ; (ela faz o EOI e termina em IRET)
+
+        POP     DS
+        POP     AX
+        IRET
+
+; =============================================================================
+segment data public class=DATA
+
+; ------------------------------- Teclado --------------------------------------
+kb_data         EQU     60h         ; porta de dados do teclado
+kb_ctl          EQU     61h         ; porta de controle do teclado
+pictrl          EQU     20h         ; porta de comando do PIC
+eoi             EQU     20h         ; comando End Of Interrupt
+INT9            EQU     09h         ; interrupcao de hardware do teclado
+
+; Scan codes (make)
+TEC_ESC         EQU     01h
+TEC_Q           EQU     10h
+TEC_W           EQU     11h
+TEC_R           EQU     13h
+TEC_T           EQU     14h
+TEC_Y           EQU     15h
+TEC_P           EQU     19h
+TEC_ENTER       EQU     1Ch
+TEC_A           EQU     1Eh
+TEC_S           EQU     1Fh
+TEC_D           EQU     20h
+TEC_N           EQU     31h
+TEC_M           EQU     32h
+TEC_CIMA        EQU     48h         ; seta para cima   (apos E0h)
+TEC_ESQ         EQU     4Bh         ; seta esquerda    (apos E0h)
+TEC_DIR         EQU     4Dh         ; seta direita     (apos E0h)
+TEC_BAIXO       EQU     50h         ; seta para baixo  (apos E0h)
+
+cs_tec          DW      0           ; CS original da INT 9
+offset_tec      DW      0           ; IP original da INT 9
+tecla_u         DB      0           ; ultimo codigo retirado do buffer
+tecla           TIMES 8 DB 0        ; buffer circular de codigos
+p_i             DW      0           ; indice de escrita (ISR)
+p_t             DW      0           ; indice de leitura (programa)
+teclas          TIMES 128 DB 0      ; tabela de estado: 1 = pressionada
+
+; ------------------------------- Relogio --------------------------------------
+INTr            EQU     08h         ; interrupcao de hardware do temporizador
+offset_clk      DW      0           ; IP original da INT 8  (offset ANTES do
+cs_clk          DW      0           ; CS original da INT 8   segmento: far ptr)
+tique           DB      0           ; tiques dentro do segundo atual
+segundos        DW      0           ; segundos decorridos
+tique_jogo      DW      0           ; incrementado a cada tique (~55 ms)
+ultimo_tique    DW      0           ; ultimo tique processado pelo loop
+
+; ------------------------------- Video ----------------------------------------
+cor             DB      branco_intenso
+                                    ; I R G B
+preto           EQU     0           ; 0 0 0 0
+azul            EQU     1           ; 0 0 0 1
+verde           EQU     2           ; 0 0 1 0
+cyan            EQU     3           ; 0 0 1 1
+vermelho        EQU     4           ; 0 1 0 0
+magenta         EQU     5           ; 0 1 0 1
+marrom          EQU     6           ; 0 1 1 0
+branco          EQU     7           ; 0 1 1 1
+cinza           EQU     8           ; 1 0 0 0
+azul_claro      EQU     9           ; 1 0 0 1
+verde_claro     EQU     10          ; 1 0 1 0
+cyan_claro      EQU     11          ; 1 0 1 1
+rosa            EQU     12          ; 1 1 0 0
+magenta_claro   EQU     13          ; 1 1 0 1
+amarelo         EQU     14          ; 1 1 1 0
+branco_intenso  EQU     15          ; 1 1 1 1
+
+modo_anterior   DB      0
+deltAX          DW      0           ; variaveis de trabalho da rotina line
+deltay          DW      0
+
+; ------------------------------- Arena ----------------------------------------
+; Coordenadas no sistema de plot_xy: Y = 0 embaixo, Y = 479 em cima.
+ARENA_ESQ       EQU     10
+ARENA_DIR       EQU     629
+ARENA_BAIXO     EQU     70          ; chao
+ARENA_TOPO      EQU     420         ; acima disso fica o HUD
+
+; ------------------------------- Jogo -----------------------------------------
+VELOCIDADE      EQU     4           ; pixels por tique (~73 px/s)
+LIM_ESQ         EQU     40          ; menor X permitido para o centro do boneco
+LIM_DIR         EQU     598         ; maior X permitido (braco vai ate +27)
+DIST_MIN        EQU     50          ; distancia minima entre os dois lutadores
+Y_CHAO          EQU     156         ; Y dos ombros com o lutador no chao
+VEL_PULO        EQU     22          ; velocidade vertical inicial do pulo (px/tique)
+GRAVIDADE       EQU     2           ; reducao de VY a cada tique
+sair_flag       DB      0
+
+tam_corpo       DW      46
+tam_braco       DW      28
+tam_perna       DW      30
+
+; ----------------------------------------------------------------------------
+; Estrutura de um jogador (20 bytes). Acesse sempre como [SI+campo].
+; ----------------------------------------------------------------------------
+JX              EQU     0           ; dw  posicao X atual (centro do tronco)
+JY              EQU     2           ; dw  posicao Y atual (ombros)
+JXANT           EQU     4           ; dw  X onde foi desenhado por ultimo
+JYANT           EQU     6           ; dw  Y onde foi desenhado por ultimo
+JFRAME          EQU     8           ; db  frame atual da animacao
+JFRAMEANT       EQU     9           ; db  frame desenhado por ultimo
+JDIR            EQU     10          ; db  0 = olha p/ direita, 1 = p/ esquerda
+JDIRANT         EQU     11          ; db  direcao desenhada por ultimo
+JCOR            EQU     12          ; db  cor do lutador
+JENERGIA        EQU     13          ; db  energia (comeca em 10)
+JESTADO         EQU     14          ; db  0 idle, 1 dir, 2 esq, 3 soco, 4 chute...
+                                    ; byte 15: reserva (alinhamento)
+JVY             EQU     16          ; dw  velocidade vertical (positiva = sobe)
+JPULO           EQU     18          ; db  1 = no ar, 0 = no chao
+                                    ; byte 19: reserva (alinhamento)
+
+; Y_CHAO = 156 deixa os pes (offset -84 do frame) logo acima do chao (Y = 70)
+jogador1:
+        DW      150, Y_CHAO         ; JX, JY
+        DW      150, Y_CHAO         ; JXANT, JYANT
+        DB      0, 0                ; JFRAME, JFRAMEANT
+        DB      0, 0                ; JDIR, JDIRANT   (olha para a direita)
+        DB      azul_claro          ; JCOR
+        DB      10                  ; JENERGIA
+        DB      0                   ; JESTADO
+        DB      0                   ; reserva
+        DW      0                   ; JVY
+        DB      0                   ; JPULO
+        DB      0                   ; reserva
+
+jogador2:
+        DW      490, Y_CHAO         ; JX, JY
+        DW      490, Y_CHAO         ; JXANT, JYANT
+        DB      0, 0                ; JFRAME, JFRAMEANT
+        DB      1, 1                ; JDIR, JDIRANT   (olha para a esquerda)
+        DB      vermelho            ; JCOR
+        DB      10                  ; JENERGIA
+        DB      0                   ; JESTADO
+        DB      0                   ; reserva
+        DW      0                   ; JVY
+        DB      0                   ; JPULO
+        DB      0                   ; reserva
+
+; =============================================================================
+segment stack stack
+        resb    1024
+stacktop:

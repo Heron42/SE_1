@@ -1,0 +1,738 @@
+     1                                  ; =============================================================================
+     2                                  ; trabalho.asm  -  Jogo de Luta em Assembly 8086 (modulo principal)
+     3                                  ; -----------------------------------------------------------------------------
+     4                                  ; Responsabilidades deste modulo:
+     5                                  ;   - inicializacao (segmentos, vetores de interrupcao, modo de video)
+     6                                  ;   - ISR de teclado (INT 9h) com TABELA DE ESTADO + buffer de eventos
+     7                                  ;   - ISR de relogio (INT 8h) gerando o "tique" do loop do jogo
+     8                                  ;   - loop principal sincronizado com o relogio
+     9                                  ;   - movimentacao dos dois jogadores
+    10                                  ;   - restauracao do sistema na saida
+    11                                  ;
+    12                                  ; Controles implementados nesta versao:
+    13                                  ;   Jogador 1: A = esquerda, D = direita, W = pular
+    14                                  ;   Jogador 2: seta esquerda, seta direita, seta cima = pular
+    15                                  ;   ESC      : sai do programa (provisorio; o Q com confirmacao vem depois)
+    16                                  ;
+    17                                  ; Mecanica de orientacao:
+    18                                  ;   - Os lutadores estao SEMPRE virados um para o outro (atualiza_direcao).
+    19                                  ;   - No chao, um nao atravessa o outro (DIST_MIN).
+    20                                  ;   - Pulando, o lutador pode passar por cima do adversario e trocar de lado;
+    21                                  ;     ao pousar sobreposto, ele e empurrado para o lado em que caiu.
+    22                                  ;
+    23                                  ; Montagem (2 modulos):
+    24                                  ;   nasm16 -f obj -o trabalho.obj -l trabalho.lst trabalho.asm
+    25                                  ;   nasm16 -f obj -o graficos.obj -l graficos.lst graficos.asm
+    26                                  ;   (ligar trabalho.obj + graficos.obj com o linker usado na disciplina)
+    27                                  ; =============================================================================
+    28                                  
+    29                                  ; ------------------------------- Simbolos externos / publicos -----------------
+    30                                  extern  desenha_jogador         ; graficos.asm
+    31                                  extern  line                    ; graficos.asm
+    32                                  
+    33                                  global  cor
+    34                                  global  deltAX
+    35                                  global  deltay
+    36                                  global  tam_corpo
+    37                                  
+    38                                  ; =============================================================================
+    39                                  segment code public class=CODE
+    40                                  ..start:
+    41                                  ; ---------------------------------------------- Inicializacao dos registradores
+    42 00000000 B8[0000]                        MOV     AX, data
+    43 00000003 8ED8                            MOV     DS, AX
+    44 00000005 B8[0000]                        MOV     AX, stack
+    45 00000008 8ED0                            MOV     SS, AX
+    46 0000000A BC[0004]                        MOV     SP, stacktop
+    47                                  
+    48                                  ; ---------------------------------------------- Instalacao das ISRs (INT 9 e INT 8)
+    49 0000000D FA                              CLI                                 ; desabilita interrupcoes enquanto troca os vetores
+    50 0000000E 31C0                            XOR     AX, AX
+    51 00000010 8EC0                            MOV     ES, AX                      ; ES = 0000h -> tabela de vetores
+    52                                  
+    53 00000012 26A12400                        MOV     AX, [ES:INT9*4]             ; salva IP original da INT 9
+    54 00000016 A3[0200]                        MOV     [offset_tec], AX
+    55 00000019 26A12600                        MOV     AX, [ES:INT9*4+2]           ; salva CS original da INT 9
+    56 0000001D A3[0000]                        MOV     [cs_tec], AX
+    57 00000020 268C0E2600                      MOV     [ES:INT9*4+2], CS           ; instala nossa ISR de teclado
+    58 00000025 26C7062400[4B03]                MOV     WORD [ES:INT9*4], keyINT
+    59                                  
+    60 0000002C 26A12000                        MOV     AX, [ES:INTr*4]             ; salva IP original da INT 8
+    61 00000030 A3[9100]                        MOV     [offset_clk], AX
+    62 00000033 26A12200                        MOV     AX, [ES:INTr*4+2]           ; salva CS original da INT 8
+    63 00000037 A3[9300]                        MOV     [cs_clk], AX
+    64 0000003A 268C0E2200                      MOV     [ES:INTr*4+2], CS           ; instala nossa ISR de relogio
+    65 0000003F 26C7062000[9803]                MOV     WORD [ES:INTr*4], ClockINT
+    66 00000046 FB                              STI                                 ; reabilita interrupcoes
+    67                                  
+    68                                  ; ---------------------------------------------- Modo grafico
+    69 00000047 B40F                            MOV     AH, 0Fh                     ; le o modo de video atual
+    70 00000049 CD10                            INT     10h
+    71 0000004B A2[9D00]                        MOV     [modo_anterior], AL
+    72                                  
+    73 0000004E B400                            MOV     AH, 0                       ; modo 12h: 640x480, 16 cores
+    74 00000050 B012                            MOV     AL, 12h
+    75 00000052 CD10                            INT     10h
+    76                                  
+    77                                  ; ---------------------------------------------- Cena inicial
+    78 00000054 E8A002                          CALL    desenha_arena
+    79 00000057 BE[A900]                        MOV     SI, jogador1
+    80 0000005A E84C02                          CALL    pinta_jogador
+    81 0000005D BE[BD00]                        MOV     SI, jogador2
+    82 00000060 E84602                          CALL    pinta_jogador
+    83                                  
+    84 00000063 A1[9800]                        MOV     AX, [tique_jogo]            ; sincroniza o contador do loop
+    85 00000066 A3[9A00]                        MOV     [ultimo_tique], AX
+    86                                  
+    87                                  ; =============================================================================
+    88                                  ; LOOP PRINCIPAL
+    89                                  ; Roda uma vez a cada tique da INT 8h (~55 ms, 18,2 vezes por segundo).
+    90                                  ; Nao ha atraso por laco de software: o ritmo vem do temporizador 8253.
+    91                                  ; =============================================================================
+    92                                  loop_jogo:
+    93 00000069 A1[9800]                        MOV     AX, [tique_jogo]
+    94 0000006C 3B06[9A00]                      CMP     AX, [ultimo_tique]
+    95 00000070 74F7                            JE      loop_jogo                   ; ainda no mesmo tique: espera
+    96 00000072 A3[9A00]                        MOV     [ultimo_tique], AX
+    97                                  
+    98                                          ; ---- 1. Eventos pontuais (buffer circular) -------------------------
+    99 00000075 E86F00                          CALL    trata_eventos
+   100 00000078 803E[A200]01                    CMP     byte [sair_flag], 1
+   101 0000007D 743A                            JE      fim
+   102                                  
+   103                                          ; ---- 2. Teclas mantidas pressionadas (tabela de estado) ------------
+   104 0000007F E89100                          CALL    le_controles
+   105                                  
+   106                                          ; ---- 3. Fisica do pulo (gravidade e pouso) -------------------------
+   107 00000082 BE[A900]                        MOV     SI, jogador1
+   108 00000085 BF[BD00]                        MOV     DI, jogador2
+   109 00000088 E82B01                          CALL    fisica_jogador
+   110 0000008B BE[BD00]                        MOV     SI, jogador2
+   111 0000008E BF[A900]                        MOV     DI, jogador1
+   112 00000091 E82201                          CALL    fisica_jogador
+   113                                  
+   114                                          ; ---- 4. Vira os lutadores um para o outro --------------------------
+   115 00000094 E8AB01                          CALL    atualiza_direcao
+   116                                  
+   117                                          ; ---- 5. Redesenha apenas se algo mudou -----------------------------
+   118 00000097 E8CD01                          CALL    houve_mudanca               ; retorna AL = 1 se precisa redesenhar
+   119 0000009A 3C00                            CMP     AL, 0
+   120 0000009C 74CB                            JE      loop_jogo
+   121                                  
+   122 0000009E BE[A900]                        MOV     SI, jogador1                ; apaga os dois na posicao antiga...
+   123 000000A1 E83502                          CALL    apaga_jogador
+   124 000000A4 BE[BD00]                        MOV     SI, jogador2
+   125 000000A7 E82F02                          CALL    apaga_jogador
+   126 000000AA BE[A900]                        MOV     SI, jogador1                ; ...e redesenha os dois na nova
+   127 000000AD E8F901                          CALL    pinta_jogador               ; (redesenhar ambos evita que um
+   128 000000B0 BE[BD00]                        MOV     SI, jogador2                ;  apague um pedaco do outro)
+   129 000000B3 E8F301                          CALL    pinta_jogador
+   130                                  
+   131 000000B6 E9B0FF                          JMP     loop_jogo
+   132                                  
+   133                                  ; =============================================================================
+   134                                  ; fim: restaura vetores e modo de video e devolve o controle ao DOS
+   135                                  ; =============================================================================
+   136                                  fim:
+   137 000000B9 FA                              CLI
+   138 000000BA 31C0                            XOR     AX, AX
+   139 000000BC 8EC0                            MOV     ES, AX
+   140 000000BE A1[0000]                        MOV     AX, [cs_tec]                ; restaura INT 9
+   141 000000C1 26A32600                        MOV     [ES:INT9*4+2], AX
+   142 000000C5 A1[0200]                        MOV     AX, [offset_tec]
+   143 000000C8 26A32400                        MOV     [ES:INT9*4], AX
+   144 000000CC A1[9300]                        MOV     AX, [cs_clk]                ; restaura INT 8
+   145 000000CF 26A32200                        MOV     [ES:INTr*4+2], AX
+   146 000000D3 A1[9100]                        MOV     AX, [offset_clk]
+   147 000000D6 26A32000                        MOV     [ES:INTr*4], AX
+   148 000000DA FB                              STI
+   149                                  
+   150 000000DB B400                            MOV     AH, 0                       ; restaura o modo de video original
+   151 000000DD A0[9D00]                        MOV     AL, [modo_anterior]
+   152 000000E0 CD10                            INT     10h
+   153                                  
+   154 000000E2 B8004C                          MOV     AX, 4C00h                   ; retorna ao DOS
+   155 000000E5 CD21                            INT     21h
+   156                                  
+   157                                  ; =============================================================================
+   158                                  ; trata_eventos
+   159                                  ; Consome o buffer circular de codigos (eventos de "pressionou uma vez").
+   160                                  ; Usado para teclas de comando (ESC agora; P, Q, Y, N, Enter depois).
+   161                                  ; =============================================================================
+   162                                  trata_eventos:
+   163 000000E7 50                              PUSH    AX
+   164 000000E8 53                              PUSH    BX
+   165                                  te_prox:
+   166 000000E9 A1[0D00]                        MOV     AX, [p_i]
+   167 000000EC 3B06[0F00]                      CMP     AX, [p_t]
+   168 000000F0 741E                            JE      te_fim                      ; buffer vazio
+   169 000000F2 FF06[0F00]                      INC     WORD [p_t]
+   170 000000F6 8126[0F00]0700                  AND     WORD [p_t], 7
+   171 000000FC 8B1E[0F00]                      MOV     BX, [p_t]
+   172 00000100 8A87[0500]                      MOV     AL, [BX+tecla]
+   173 00000104 A2[0400]                        MOV     [tecla_u], AL
+   174                                  
+   175 00000107 3C01                            CMP     AL, TEC_ESC                 ; ESC pressionado (make 01h)
+   176 00000109 75DE                            JNE     te_prox
+   177 0000010B C606[A200]01                    MOV     byte [sair_flag], 1
+   178                                  te_fim:
+   179 00000110 5B                              POP     BX
+   180 00000111 58                              POP     AX
+   181 00000112 C3                              RET
+   182                                  
+   183                                  ; =============================================================================
+   184                                  ; le_controles
+   185                                  ; Le a tabela de estado do teclado e move os jogadores.
+   186                                  ; Como a tabela guarda cada tecla separadamente, os dois jogadores podem
+   187                                  ; segurar suas teclas ao mesmo tempo sem um bloquear o outro.
+   188                                  ; =============================================================================
+   189                                  le_controles:
+   190 00000113 50                              PUSH    AX
+   191 00000114 56                              PUSH    SI
+   192 00000115 57                              PUSH    DI
+   193                                  
+   194                                          ; ------------------------- Jogador 1 (W / A / D)
+   195 00000116 BE[A900]                        MOV     SI, jogador1
+   196 00000119 BF[BD00]                        MOV     DI, jogador2
+   197 0000011C 803E[2200]00                    CMP     byte [teclas+TEC_W], 0
+   198 00000121 7403                            JE      lc_p1_esq
+   199 00000123 E87D00                          CALL    inicia_pulo
+   200                                  lc_p1_esq:
+   201 00000126 803E[2F00]00                    CMP     byte [teclas+TEC_A], 0
+   202 0000012B 7406                            JE      lc_p1_dir
+   203 0000012D B8FCFF                          MOV     AX, -VELOCIDADE
+   204 00000130 E83B00                          CALL    mover_jogador
+   205                                  lc_p1_dir:
+   206 00000133 803E[3100]00                    CMP     byte [teclas+TEC_D], 0
+   207 00000138 7406                            JE      lc_p2
+   208 0000013A B80400                          MOV     AX, VELOCIDADE
+   209 0000013D E82E00                          CALL    mover_jogador
+   210                                  
+   211                                          ; ------------------------- Jogador 2 (setas)
+   212                                  lc_p2:
+   213 00000140 BE[BD00]                        MOV     SI, jogador2
+   214 00000143 BF[A900]                        MOV     DI, jogador1
+   215 00000146 803E[5900]00                    CMP     byte [teclas+TEC_CIMA], 0
+   216 0000014B 7403                            JE      lc_p2_esq
+   217 0000014D E85300                          CALL    inicia_pulo
+   218                                  lc_p2_esq:
+   219 00000150 803E[5C00]00                    CMP     byte [teclas+TEC_ESQ], 0
+   220 00000155 7406                            JE      lc_p2_dir
+   221 00000157 B8FCFF                          MOV     AX, -VELOCIDADE
+   222 0000015A E81100                          CALL    mover_jogador
+   223                                  lc_p2_dir:
+   224 0000015D 803E[5E00]00                    CMP     byte [teclas+TEC_DIR], 0
+   225 00000162 7406                            JE      lc_fim
+   226 00000164 B80400                          MOV     AX, VELOCIDADE
+   227 00000167 E80400                          CALL    mover_jogador
+   228                                  lc_fim:
+   229 0000016A 5F                              POP     DI
+   230 0000016B 5E                              POP     SI
+   231 0000016C 58                              POP     AX
+   232 0000016D C3                              RET
+   233                                  
+   234                                  ; =============================================================================
+   235                                  ; mover_jogador
+   236                                  ; Entrada: SI = jogador que se move, DI = adversario, AX = deslocamento em X
+   237                                  ; So aplica o movimento se:
+   238                                  ;   - o jogador continuar dentro dos limites da arena, e
+   239                                  ;   - a distancia ate o adversario continuar >= DIST_MIN (nao atravessa).
+   240                                  ; Se QUALQUER um dos dois estiver no ar, a distancia nao e verificada:
+   241                                  ; e assim que um lutador passa por cima do outro e troca de lado.
+   242                                  ; =============================================================================
+   243                                  mover_jogador:
+   244 0000016E 50                              PUSH    AX
+   245 0000016F 53                              PUSH    BX
+   246 00000170 03840000                        ADD     AX, [SI+JX]                 ; AX = nova posicao X
+   247 00000174 3D2800                          CMP     AX, LIM_ESQ
+   248 00000177 7C27                            JL      mj_fim                      ; passaria da parede esquerda
+   249 00000179 3D5602                          CMP     AX, LIM_DIR
+   250 0000017C 7F22                            JG      mj_fim                      ; passaria da parede direita
+   251 0000017E 80BC120000                      CMP     byte [SI+JPULO], 0          ; quem anda esta no ar?
+   252 00000183 7517                            JNE     mj_aceita
+   253 00000185 80BD120000                      CMP     byte [DI+JPULO], 0          ; o adversario esta no ar?
+   254 0000018A 7510                            JNE     mj_aceita
+   255 0000018C 89C3                            MOV     BX, AX
+   256 0000018E 2B9D0000                        SUB     BX, [DI+JX]                 ; BX = nova_x - x_adversario
+   257 00000192 7902                            JNS     mj_abs
+   258 00000194 F7DB                            NEG     BX                          ; BX = |distancia|
+   259                                  mj_abs:
+   260 00000196 81FB3200                        CMP     BX, DIST_MIN
+   261 0000019A 7C04                            JL      mj_fim                      ; encostaria/atravessaria o adversario
+   262                                  mj_aceita:
+   263 0000019C 89840000                        MOV     [SI+JX], AX                 ; movimento aceito
+   264                                  mj_fim:
+   265 000001A0 5B                              POP     BX
+   266 000001A1 58                              POP     AX
+   267 000001A2 C3                              RET
+   268                                  
+   269                                  ; =============================================================================
+   270                                  ; inicia_pulo
+   271                                  ; Entrada: SI = jogador. So pula se estiver no chao.
+   272                                  ; =============================================================================
+   273                                  inicia_pulo:
+   274 000001A3 80BC120000                      CMP     byte [SI+JPULO], 0
+   275 000001A8 750B                            JNE     ip_fim                      ; ja esta no ar: ignora
+   276 000001AA C684120001                      MOV     byte [SI+JPULO], 1
+   277 000001AF C78410001600                    MOV     WORD [SI+JVY], VEL_PULO     ; velocidade vertical inicial (para cima)
+   278                                  ip_fim:
+   279 000001B5 C3                              RET
+   280                                  
+   281                                  ; =============================================================================
+   282                                  ; fisica_jogador
+   283                                  ; Entrada: SI = jogador, DI = adversario. Executada uma vez por tique.
+   284                                  ;   Y  <- Y + VY
+   285                                  ;   VY <- VY - GRAVIDADE
+   286                                  ; Ao tocar o chao (Y <= Y_CHAO): fixa Y no chao, zera VY, encerra o pulo
+   287                                  ; e resolve uma eventual sobreposicao com o adversario.
+   288                                  ; Com VEL_PULO = 22 e GRAVIDADE = 2 o pulo sobe 132 px e dura ~1,3 s
+   289                                  ; (os pes passam cerca de 30 px acima da cabeca do adversario).
+   290                                  ; =============================================================================
+   291                                  fisica_jogador:
+   292 000001B6 50                              PUSH    AX
+   293 000001B7 80BC120000                      CMP     byte [SI+JPULO], 0
+   294 000001BC 742A                            JE      fj_fim                      ; no chao: nada a fazer
+   295 000001BE 8B841000                        MOV     AX, [SI+JVY]
+   296 000001C2 01840200                        ADD     [SI+JY], AX                 ; move na vertical
+   297 000001C6 81AC10000200                    SUB     WORD [SI+JVY], GRAVIDADE    ; gravidade
+   298 000001CC 81BC02009C00                    CMP     WORD [SI+JY], Y_CHAO
+   299 000001D2 7F14                            JG      fj_fim                      ; ainda no ar
+   300 000001D4 C78402009C00                    MOV     WORD [SI+JY], Y_CHAO        ; pousou
+   301 000001DA C78410000000                    MOV     WORD [SI+JVY], 0
+   302 000001E0 C684120000                      MOV     byte [SI+JPULO], 0
+   303 000001E5 E80200                          CALL    separa_ao_pousar
+   304                                  fj_fim:
+   305 000001E8 58                              POP     AX
+   306 000001E9 C3                              RET
+   307                                  
+   308                                  ; =============================================================================
+   309                                  ; separa_ao_pousar
+   310                                  ; Entrada: SI = jogador que acabou de pousar, DI = adversario.
+   311                                  ; Se pousou a menos de DIST_MIN do adversario (que esta no chao), empurra
+   312                                  ; quem pousou para o lado em que caiu. Se a parede impedir, empurra o
+   313                                  ; adversario para o outro lado. Se o adversario ainda estiver no ar, a
+   314                                  ; separacao sera feita quando ELE pousar.
+   315                                  ; =============================================================================
+   316                                  separa_ao_pousar:
+   317 000001EA 50                              PUSH    AX
+   318 000001EB 53                              PUSH    BX
+   319 000001EC 80BD120000                      CMP     byte [DI+JPULO], 0
+   320 000001F1 754C                            JNE     sp_fim                      ; adversario no ar: resolve depois
+   321 000001F3 8B840000                        MOV     AX, [SI+JX]
+   322 000001F7 2B850000                        SUB     AX, [DI+JX]                 ; AX = x_pousou - x_adversario
+   323 000001FB 89C3                            MOV     BX, AX
+   324 000001FD 7902                            JNS     sp_abs
+   325 000001FF F7DB                            NEG     BX
+   326                                  sp_abs:
+   327 00000201 81FB3200                        CMP     BX, DIST_MIN
+   328 00000205 7D38                            JGE     sp_fim                      ; ja estao afastados o suficiente
+   329                                  
+   330 00000207 8B9D0000                        MOV     BX, [DI+JX]
+   331 0000020B 3D0000                          CMP     AX, 0
+   332 0000020E 7C17                            JL      sp_esquerda
+   333                                          ; ---- caiu a direita (ou exatamente em cima): vai para a direita
+   334 00000210 81C33200                        ADD     BX, DIST_MIN
+   335 00000214 81FB5602                        CMP     BX, LIM_DIR
+   336 00000218 7E21                            JLE     sp_grava
+   337 0000021A BB5602                          MOV     BX, LIM_DIR                 ; parede direita: encosta nela...
+   338 0000021D B82402                          MOV     AX, LIM_DIR - DIST_MIN
+   339 00000220 89850000                        MOV     [DI+JX], AX                 ; ...e empurra o adversario
+   340 00000224 E91400                          JMP     sp_grava
+   341                                  sp_esquerda:
+   342                                          ; ---- caiu a esquerda: vai para a esquerda
+   343 00000227 81EB3200                        SUB     BX, DIST_MIN
+   344 0000022B 81FB2800                        CMP     BX, LIM_ESQ
+   345 0000022F 7D0A                            JGE     sp_grava
+   346 00000231 BB2800                          MOV     BX, LIM_ESQ                 ; parede esquerda: encosta nela...
+   347 00000234 B85A00                          MOV     AX, LIM_ESQ + DIST_MIN
+   348 00000237 89850000                        MOV     [DI+JX], AX                 ; ...e empurra o adversario
+   349                                  sp_grava:
+   350 0000023B 899C0000                        MOV     [SI+JX], BX
+   351                                  sp_fim:
+   352 0000023F 5B                              POP     BX
+   353 00000240 58                              POP     AX
+   354 00000241 C3                              RET
+   355                                  
+   356                                  ; =============================================================================
+   357                                  ; atualiza_direcao
+   358                                  ; Mantem os lutadores sempre virados um para o outro:
+   359                                  ;   x1 < x2 -> J1 olha para a direita (0) e J2 para a esquerda (1)
+   360                                  ;   x1 > x2 -> J1 olha para a esquerda (1) e J2 para a direita (0)
+   361                                  ;   x1 = x2 -> (um sobre o outro, no pulo) mantem a direcao atual
+   362                                  ; A troca de direcao e detectada por houve_mudanca (JDIR x JDIRANT) e o
+   363                                  ; boneco e redesenhado espelhado automaticamente.
+   364                                  ; =============================================================================
+   365                                  atualiza_direcao:
+   366 00000242 50                              PUSH    AX
+   367 00000243 A1[A900]                        MOV     AX, [jogador1+JX]
+   368 00000246 3B06[BD00]                      CMP     AX, [jogador2+JX]
+   369 0000024A 7419                            JE      ad_fim
+   370 0000024C 7F0D                            JG      ad_invertido
+   371 0000024E C606[B300]00                    MOV     byte [jogador1+JDIR], 0
+   372 00000253 C606[C700]01                    MOV     byte [jogador2+JDIR], 1
+   373 00000258 E90A00                          JMP     ad_fim
+   374                                  ad_invertido:
+   375 0000025B C606[B300]01                    MOV     byte [jogador1+JDIR], 1
+   376 00000260 C606[C700]00                    MOV     byte [jogador2+JDIR], 0
+   377                                  ad_fim:
+   378 00000265 58                              POP     AX
+   379 00000266 C3                              RET
+   380                                  
+   381                                  ; =============================================================================
+   382                                  ; houve_mudanca
+   383                                  ; Saida: AL = 1 se algum jogador mudou de posicao/frame/direcao desde o
+   384                                  ;        ultimo desenho; AL = 0 caso contrario.
+   385                                  ; =============================================================================
+   386                                  houve_mudanca:
+   387 00000267 56                              PUSH    SI
+   388 00000268 BE[A900]                        MOV     SI, jogador1
+   389 0000026B E80C00                          CALL    jogador_mudou
+   390 0000026E 3C01                            CMP     AL, 1
+   391 00000270 7406                            JE      hm_fim
+   392 00000272 BE[BD00]                        MOV     SI, jogador2
+   393 00000275 E80200                          CALL    jogador_mudou
+   394                                  hm_fim:
+   395 00000278 5E                              POP     SI
+   396 00000279 C3                              RET
+   397                                  
+   398                                  ; Entrada: SI = jogador. Saida: AL = 1 se mudou, 0 se nao.
+   399                                  jogador_mudou:
+   400 0000027A 53                              PUSH    BX
+   401 0000027B B001                            MOV     AL, 1
+   402 0000027D 8B9C0000                        MOV     BX, [SI+JX]
+   403 00000281 3B9C0400                        CMP     BX, [SI+JXANT]
+   404 00000285 7520                            JNE     jm_fim
+   405 00000287 8B9C0200                        MOV     BX, [SI+JY]
+   406 0000028B 3B9C0600                        CMP     BX, [SI+JYANT]
+   407 0000028F 7516                            JNE     jm_fim
+   408 00000291 8A9C0800                        MOV     BL, [SI+JFRAME]
+   409 00000295 3A9C0900                        CMP     BL, [SI+JFRAMEANT]
+   410 00000299 750C                            JNE     jm_fim
+   411 0000029B 8A9C0A00                        MOV     BL, [SI+JDIR]
+   412 0000029F 3A9C0B00                        CMP     BL, [SI+JDIRANT]
+   413 000002A3 7502                            JNE     jm_fim
+   414 000002A5 B000                            MOV     AL, 0
+   415                                  jm_fim:
+   416 000002A7 5B                              POP     BX
+   417 000002A8 C3                              RET
+   418                                  
+   419                                  ; =============================================================================
+   420                                  ; pinta_jogador
+   421                                  ; Entrada: SI = jogador. Desenha na posicao ATUAL, com a cor do jogador, e
+   422                                  ; guarda essa posicao/frame/direcao como "anterior" (para poder apagar depois).
+   423                                  ; =============================================================================
+   424                                  pinta_jogador:
+   425 000002A9 50                              PUSH    AX
+   426 000002AA 53                              PUSH    BX
+   427 000002AB 51                              PUSH    CX
+   428 000002AC 52                              PUSH    DX
+   429 000002AD 8A840C00                        MOV     AL, [SI+JCOR]
+   430 000002B1 8AA40800                        MOV     AH, [SI+JFRAME]
+   431 000002B5 8A9C0A00                        MOV     BL, [SI+JDIR]
+   432 000002B9 8B8C0000                        MOV     CX, [SI+JX]
+   433 000002BD 8B940200                        MOV     DX, [SI+JY]
+   434 000002C1 E8(0000)                        CALL    desenha_jogador             ; preserva todos os registradores
+   435 000002C4 898C0400                        MOV     [SI+JXANT], CX
+   436 000002C8 89940600                        MOV     [SI+JYANT], DX
+   437 000002CC 88A40900                        MOV     [SI+JFRAMEANT], AH
+   438 000002D0 889C0B00                        MOV     [SI+JDIRANT], BL
+   439 000002D4 5A                              POP     DX
+   440 000002D5 59                              POP     CX
+   441 000002D6 5B                              POP     BX
+   442 000002D7 58                              POP     AX
+   443 000002D8 C3                              RET
+   444                                  
+   445                                  ; =============================================================================
+   446                                  ; apaga_jogador
+   447                                  ; Entrada: SI = jogador. Redesenha em PRETO na posicao ANTERIOR.
+   448                                  ; =============================================================================
+   449                                  apaga_jogador:
+   450 000002D9 50                              PUSH    AX
+   451 000002DA 53                              PUSH    BX
+   452 000002DB 51                              PUSH    CX
+   453 000002DC 52                              PUSH    DX
+   454 000002DD B000                            MOV     AL, preto
+   455 000002DF 8AA40900                        MOV     AH, [SI+JFRAMEANT]
+   456 000002E3 8A9C0B00                        MOV     BL, [SI+JDIRANT]
+   457 000002E7 8B8C0400                        MOV     CX, [SI+JXANT]
+   458 000002EB 8B940600                        MOV     DX, [SI+JYANT]
+   459 000002EF E8(0000)                        CALL    desenha_jogador
+   460 000002F2 5A                              POP     DX
+   461 000002F3 59                              POP     CX
+   462 000002F4 5B                              POP     BX
+   463 000002F5 58                              POP     AX
+   464 000002F6 C3                              RET
+   465                                  
+   466                                  ; =============================================================================
+   467                                  ; desenha_arena
+   468                                  ; Retangulo da arena: chao em Y = ARENA_BAIXO, teto em Y = ARENA_TOPO,
+   469                                  ; paredes em X = ARENA_ESQ e X = ARENA_DIR. A faixa acima do teto fica
+   470                                  ; reservada para o HUD (energia, tempo, rounds).
+   471                                  ; =============================================================================
+   472                                  desenha_arena:
+   473 000002F7 50                              PUSH    AX
+   474 000002F8 C606[9C00]0F                    MOV     byte [cor], branco_intenso
+   475                                  
+   476 000002FD B80A00                          MOV     AX, ARENA_ESQ               ; chao
+   477 00000300 50                              PUSH    AX
+   478 00000301 B84600                          MOV     AX, ARENA_BAIXO
+   479 00000304 50                              PUSH    AX
+   480 00000305 B87502                          MOV     AX, ARENA_DIR
+   481 00000308 50                              PUSH    AX
+   482 00000309 B84600                          MOV     AX, ARENA_BAIXO
+   483 0000030C 50                              PUSH    AX
+   484 0000030D E8(0000)                        CALL    line
+   485                                  
+   486 00000310 B80A00                          MOV     AX, ARENA_ESQ               ; teto
+   487 00000313 50                              PUSH    AX
+   488 00000314 B8A401                          MOV     AX, ARENA_TOPO
+   489 00000317 50                              PUSH    AX
+   490 00000318 B87502                          MOV     AX, ARENA_DIR
+   491 0000031B 50                              PUSH    AX
+   492 0000031C B8A401                          MOV     AX, ARENA_TOPO
+   493 0000031F 50                              PUSH    AX
+   494 00000320 E8(0000)                        CALL    line
+   495                                  
+   496 00000323 B80A00                          MOV     AX, ARENA_ESQ               ; parede esquerda
+   497 00000326 50                              PUSH    AX
+   498 00000327 B84600                          MOV     AX, ARENA_BAIXO
+   499 0000032A 50                              PUSH    AX
+   500 0000032B B80A00                          MOV     AX, ARENA_ESQ
+   501 0000032E 50                              PUSH    AX
+   502 0000032F B8A401                          MOV     AX, ARENA_TOPO
+   503 00000332 50                              PUSH    AX
+   504 00000333 E8(0000)                        CALL    line
+   505                                  
+   506 00000336 B87502                          MOV     AX, ARENA_DIR               ; parede direita
+   507 00000339 50                              PUSH    AX
+   508 0000033A B84600                          MOV     AX, ARENA_BAIXO
+   509 0000033D 50                              PUSH    AX
+   510 0000033E B87502                          MOV     AX, ARENA_DIR
+   511 00000341 50                              PUSH    AX
+   512 00000342 B8A401                          MOV     AX, ARENA_TOPO
+   513 00000345 50                              PUSH    AX
+   514 00000346 E8(0000)                        CALL    line
+   515                                  
+   516 00000349 58                              POP     AX
+   517 0000034A C3                              RET
+   518                                  
+   519                                  ; =============================================================================
+   520                                  ; ISR de teclado (INT 9h)
+   521                                  ; Mantem duas estruturas:
+   522                                  ;   teclas[128] : 1 = tecla pressionada, 0 = solta (para movimento continuo)
+   523                                  ;   tecla[8]    : buffer circular de codigos (para comandos pontuais)
+   524                                  ; As setas chegam como E0h + codigo; o prefixo E0h e simplesmente ignorado,
+   525                                  ; de modo que seta esquerda = 4Bh, seta direita = 4Dh etc.
+   526                                  ; =============================================================================
+   527                                  keyINT:
+   528 0000034B 50                              PUSH    AX
+   529 0000034C 53                              PUSH    BX
+   530 0000034D 1E                              PUSH    DS
+   531 0000034E B8[0000]                        MOV     AX, data                    ; garante DS correto dentro da ISR
+   532 00000351 8ED8                            MOV     DS, AX
+   533                                  
+   534 00000353 E460                            IN      AL, kb_data                 ; le o codigo make/break (porta 60h)
+   535 00000355 3CE0                            CMP     AL, 0E0h                    ; prefixo de tecla estendida
+   536 00000357 742D                            JE      ki_ack
+   537 00000359 3CE1                            CMP     AL, 0E1h                    ; prefixo da tecla Pause
+   538 0000035B 7429                            JE      ki_ack
+   539                                  
+   540                                          ; ---- grava no buffer circular (comandos)
+   541 0000035D FF06[0D00]                      INC     WORD [p_i]
+   542 00000361 8126[0D00]0700                  AND     WORD [p_i], 7
+   543 00000367 8B1E[0D00]                      MOV     BX, [p_i]
+   544 0000036B 8887[0500]                      MOV     [BX+tecla], AL
+   545                                  
+   546                                          ; ---- atualiza a tabela de estado (movimento)
+   547 0000036F 88C3                            MOV     BL, AL
+   548 00000371 81E37F00                        AND     BX, 007Fh                   ; BX = codigo sem o bit 7 (e BH = 0)
+   549 00000375 A880                            TEST    AL, 80h                     ; bit 7 = 1 -> break (soltou)
+   550 00000377 7508                            JNZ     ki_solta
+   551 00000379 C687[1100]01                    MOV     byte [teclas+BX], 1
+   552 0000037E E90500                          JMP     ki_ack
+   553                                  ki_solta:
+   554 00000381 C687[1100]00                    MOV     byte [teclas+BX], 0
+   555                                  
+   556                                  ki_ack:
+   557 00000386 E461                            IN      AL, kb_ctl                  ; reconhece o dado na porta 61h
+   558 00000388 0C80                            OR      AL, 80h
+   559 0000038A E661                            OUT     kb_ctl, AL
+   560 0000038C 247F                            AND     AL, 7Fh
+   561 0000038E E661                            OUT     kb_ctl, AL
+   562 00000390 B020                            MOV     AL, eoi                     ; fim de interrupcao para o PIC
+   563 00000392 E620                            OUT     pictrl, AL
+   564                                  
+   565 00000394 1F                              POP     DS
+   566 00000395 5B                              POP     BX
+   567 00000396 58                              POP     AX
+   568 00000397 CF                              IRET
+   569                                  
+   570                                  ; =============================================================================
+   571                                  ; ISR de relogio (INT 8h) - 18,2 Hz
+   572                                  ; Incrementa tique_jogo (ritmo do loop) e conta segundos (base para o
+   573                                  ; cronometro de 3 minutos do round). Ao final ENCADEIA a ISR original do
+   574                                  ; BIOS, que mantem o relogio do sistema e envia o EOI ao PIC.
+   575                                  ; =============================================================================
+   576                                  ClockINT:
+   577 00000398 50                              PUSH    AX
+   578 00000399 1E                              PUSH    DS
+   579 0000039A B8[0000]                        MOV     AX, data
+   580 0000039D 8ED8                            MOV     DS, AX
+   581                                  
+   582 0000039F FF06[9800]                      INC     WORD [tique_jogo]           ; um "frame" do jogo
+   583                                  
+   584 000003A3 FE06[9500]                      INC     byte [tique]                ; contagem de segundos
+   585 000003A7 803E[9500]12                    CMP     byte [tique], 18
+   586 000003AC 7209                            JB      ck_chain
+   587 000003AE C606[9500]00                    MOV     byte [tique], 0
+   588 000003B3 FF06[9600]                      INC     WORD [segundos]
+   589                                  
+   590                                  ck_chain:
+   591 000003B7 9C                              PUSHF                               ; simula um INT para a ISR original
+   592 000003B8 FF1E[9100]                      CALL    FAR [offset_clk]            ; (ela faz o EOI e termina em IRET)
+   593                                  
+   594 000003BC 1F                              POP     DS
+   595 000003BD 58                              POP     AX
+   596 000003BE CF                              IRET
+   597                                  
+   598                                  ; =============================================================================
+   599                                  segment data public class=DATA
+   600                                  
+   601                                  ; ------------------------------- Teclado --------------------------------------
+   602                                  kb_data         EQU     60h         ; porta de dados do teclado
+   603                                  kb_ctl          EQU     61h         ; porta de controle do teclado
+   604                                  pictrl          EQU     20h         ; porta de comando do PIC
+   605                                  eoi             EQU     20h         ; comando End Of Interrupt
+   606                                  INT9            EQU     09h         ; interrupcao de hardware do teclado
+   607                                  
+   608                                  ; Scan codes (make)
+   609                                  TEC_ESC         EQU     01h
+   610                                  TEC_Q           EQU     10h
+   611                                  TEC_W           EQU     11h
+   612                                  TEC_R           EQU     13h
+   613                                  TEC_T           EQU     14h
+   614                                  TEC_Y           EQU     15h
+   615                                  TEC_P           EQU     19h
+   616                                  TEC_ENTER       EQU     1Ch
+   617                                  TEC_A           EQU     1Eh
+   618                                  TEC_S           EQU     1Fh
+   619                                  TEC_D           EQU     20h
+   620                                  TEC_N           EQU     31h
+   621                                  TEC_M           EQU     32h
+   622                                  TEC_CIMA        EQU     48h         ; seta para cima   (apos E0h)
+   623                                  TEC_ESQ         EQU     4Bh         ; seta esquerda    (apos E0h)
+   624                                  TEC_DIR         EQU     4Dh         ; seta direita     (apos E0h)
+   625                                  TEC_BAIXO       EQU     50h         ; seta para baixo  (apos E0h)
+   626                                  
+   627 00000000 0000                    cs_tec          DW      0           ; CS original da INT 9
+   628 00000002 0000                    offset_tec      DW      0           ; IP original da INT 9
+   629 00000004 00                      tecla_u         DB      0           ; ultimo codigo retirado do buffer
+   630 00000005 00<rept>                tecla           TIMES 8 DB 0        ; buffer circular de codigos
+   631 0000000D 0000                    p_i             DW      0           ; indice de escrita (ISR)
+   632 0000000F 0000                    p_t             DW      0           ; indice de leitura (programa)
+   633 00000011 00<rept>                teclas          TIMES 128 DB 0      ; tabela de estado: 1 = pressionada
+   634                                  
+   635                                  ; ------------------------------- Relogio --------------------------------------
+   636                                  INTr            EQU     08h         ; interrupcao de hardware do temporizador
+   637 00000091 0000                    offset_clk      DW      0           ; IP original da INT 8  (offset ANTES do
+   638 00000093 0000                    cs_clk          DW      0           ; CS original da INT 8   segmento: far ptr)
+   639 00000095 00                      tique           DB      0           ; tiques dentro do segundo atual
+   640 00000096 0000                    segundos        DW      0           ; segundos decorridos
+   641 00000098 0000                    tique_jogo      DW      0           ; incrementado a cada tique (~55 ms)
+   642 0000009A 0000                    ultimo_tique    DW      0           ; ultimo tique processado pelo loop
+   643                                  
+   644                                  ; ------------------------------- Video ----------------------------------------
+   645 0000009C 0F                      cor             DB      branco_intenso
+   646                                                                      ; I R G B
+   647                                  preto           EQU     0           ; 0 0 0 0
+   648                                  azul            EQU     1           ; 0 0 0 1
+   649                                  verde           EQU     2           ; 0 0 1 0
+   650                                  cyan            EQU     3           ; 0 0 1 1
+   651                                  vermelho        EQU     4           ; 0 1 0 0
+   652                                  magenta         EQU     5           ; 0 1 0 1
+   653                                  marrom          EQU     6           ; 0 1 1 0
+   654                                  branco          EQU     7           ; 0 1 1 1
+   655                                  cinza           EQU     8           ; 1 0 0 0
+   656                                  azul_claro      EQU     9           ; 1 0 0 1
+   657                                  verde_claro     EQU     10          ; 1 0 1 0
+   658                                  cyan_claro      EQU     11          ; 1 0 1 1
+   659                                  rosa            EQU     12          ; 1 1 0 0
+   660                                  magenta_claro   EQU     13          ; 1 1 0 1
+   661                                  amarelo         EQU     14          ; 1 1 1 0
+   662                                  branco_intenso  EQU     15          ; 1 1 1 1
+   663                                  
+   664 0000009D 00                      modo_anterior   DB      0
+   665 0000009E 0000                    deltAX          DW      0           ; variaveis de trabalho da rotina line
+   666 000000A0 0000                    deltay          DW      0
+   667                                  
+   668                                  ; ------------------------------- Arena ----------------------------------------
+   669                                  ; Coordenadas no sistema de plot_xy: Y = 0 embaixo, Y = 479 em cima.
+   670                                  ARENA_ESQ       EQU     10
+   671                                  ARENA_DIR       EQU     629
+   672                                  ARENA_BAIXO     EQU     70          ; chao
+   673                                  ARENA_TOPO      EQU     420         ; acima disso fica o HUD
+   674                                  
+   675                                  ; ------------------------------- Jogo -----------------------------------------
+   676                                  VELOCIDADE      EQU     4           ; pixels por tique (~73 px/s)
+   677                                  LIM_ESQ         EQU     40          ; menor X permitido para o centro do boneco
+   678                                  LIM_DIR         EQU     598         ; maior X permitido (braco vai ate +27)
+   679                                  DIST_MIN        EQU     50          ; distancia minima entre os dois lutadores
+   680                                  Y_CHAO          EQU     156         ; Y dos ombros com o lutador no chao
+   681                                  VEL_PULO        EQU     22          ; velocidade vertical inicial do pulo (px/tique)
+   682                                  GRAVIDADE       EQU     2           ; reducao de VY a cada tique
+   683 000000A2 00                      sair_flag       DB      0
+   684                                  
+   685 000000A3 2E00                    tam_corpo       DW      46
+   686 000000A5 1C00                    tam_braco       DW      28
+   687 000000A7 1E00                    tam_perna       DW      30
+   688                                  
+   689                                  ; ----------------------------------------------------------------------------
+   690                                  ; Estrutura de um jogador (20 bytes). Acesse sempre como [SI+campo].
+   691                                  ; ----------------------------------------------------------------------------
+   692                                  JX              EQU     0           ; dw  posicao X atual (centro do tronco)
+   693                                  JY              EQU     2           ; dw  posicao Y atual (ombros)
+   694                                  JXANT           EQU     4           ; dw  X onde foi desenhado por ultimo
+   695                                  JYANT           EQU     6           ; dw  Y onde foi desenhado por ultimo
+   696                                  JFRAME          EQU     8           ; db  frame atual da animacao
+   697                                  JFRAMEANT       EQU     9           ; db  frame desenhado por ultimo
+   698                                  JDIR            EQU     10          ; db  0 = olha p/ direita, 1 = p/ esquerda
+   699                                  JDIRANT         EQU     11          ; db  direcao desenhada por ultimo
+   700                                  JCOR            EQU     12          ; db  cor do lutador
+   701                                  JENERGIA        EQU     13          ; db  energia (comeca em 10)
+   702                                  JESTADO         EQU     14          ; db  0 idle, 1 dir, 2 esq, 3 soco, 4 chute...
+   703                                                                      ; byte 15: reserva (alinhamento)
+   704                                  JVY             EQU     16          ; dw  velocidade vertical (positiva = sobe)
+   705                                  JPULO           EQU     18          ; db  1 = no ar, 0 = no chao
+   706                                                                      ; byte 19: reserva (alinhamento)
+   707                                  
+   708                                  ; Y_CHAO = 156 deixa os pes (offset -84 do frame) logo acima do chao (Y = 70)
+   709                                  jogador1:
+   710 000000A9 96009C00                        DW      150, Y_CHAO         ; JX, JY
+   711 000000AD 96009C00                        DW      150, Y_CHAO         ; JXANT, JYANT
+   712 000000B1 0000                            DB      0, 0                ; JFRAME, JFRAMEANT
+   713 000000B3 0000                            DB      0, 0                ; JDIR, JDIRANT   (olha para a direita)
+   714 000000B5 09                              DB      azul_claro          ; JCOR
+   715 000000B6 0A                              DB      10                  ; JENERGIA
+   716 000000B7 00                              DB      0                   ; JESTADO
+   717 000000B8 00                              DB      0                   ; reserva
+   718 000000B9 0000                            DW      0                   ; JVY
+   719 000000BB 00                              DB      0                   ; JPULO
+   720 000000BC 00                              DB      0                   ; reserva
+   721                                  
+   722                                  jogador2:
+   723 000000BD EA019C00                        DW      490, Y_CHAO         ; JX, JY
+   724 000000C1 EA019C00                        DW      490, Y_CHAO         ; JXANT, JYANT
+   725 000000C5 0000                            DB      0, 0                ; JFRAME, JFRAMEANT
+   726 000000C7 0101                            DB      1, 1                ; JDIR, JDIRANT   (olha para a esquerda)
+   727 000000C9 04                              DB      vermelho            ; JCOR
+   728 000000CA 0A                              DB      10                  ; JENERGIA
+   729 000000CB 00                              DB      0                   ; JESTADO
+   730 000000CC 00                              DB      0                   ; reserva
+   731 000000CD 0000                            DW      0                   ; JVY
+   732 000000CF 00                              DB      0                   ; JPULO
+   733 000000D0 00                              DB      0                   ; reserva
+   734                                  
+   735                                  ; =============================================================================
+   736                                  segment stack stack
+   737 00000000 <res 00000400>                  resb    1024
+   738                                  stacktop:
