@@ -39,6 +39,9 @@ segment code public class=CODE
 ;   perna esq: joelho, pe         | perna dir: joelho, pe
 ; Bracos partem do ombro (X, Y); pernas partem do quadril (X, Y - tam_corpo).
 ;-----------------------------------------------------------------------------
+;-----------------------------------------------------------------------------
+; desenha_jogador (Versão Esqueleto Dinâmico - 40 bytes por frame)
+;-----------------------------------------------------------------------------
 desenha_jogador:
         PUSHF
         PUSH    AX
@@ -53,76 +56,92 @@ desenha_jogador:
         MOV     [base_x], CX
         MOV     [base_y], DX
         
-        ; Salva o frame (AH) e o estado (BH) temporariamente
         PUSH    AX
         PUSH    BX
 
-        ; Encontra o endereço base da animação a partir do Estado (BH)
+        ; 1. Encontra a animação correta
         MOV     AL, BH
         XOR     AH, AH
-        SHL     AX, 1                   ; Multiplica estado por 2 (pois cada dw tem 2 bytes)
+        SHL     AX, 1
         MOV     SI, AX
-        MOV     BX, [tabela_animacoes + SI] ; BX agora guarda o endereço da animação correta
+        MOV     BX, [tabela_animacoes + SI]
 
-        ; Calcula o offset do Frame (antigo AH, que foi salvo na pilha)
-        POP     DX                      ; Restaura estado em DH, espelho em DL
-        POP     AX                      ; Restaura cor em AL, frame em AH
+        ; 2. Calcula offset do Frame (AH * 40 bytes: SHL 3 + SHL 5)
+        POP     DX
+        POP     AX
         
-        PUSH    AX                      ; Salva AX de novo para não perder a cor
-        MOV     AL, AH                  ; Move o frame para AL
+        PUSH    AX
+        MOV     AL, AH
         XOR     AH, AH
         MOV     DI, AX
-        MOV     CL, 5
-        SHL     DI, CL                  ; Multiplica frame por 32
-        
-        ; Soma o offset do frame com o endereço base da animação
-        ADD     DI, BX                  ; Em vez de ADD DI, v_idle
-        POP     AX                      ; Restaura AX original (com a cor)
+        SHL     DI, 3                   ; DI = frame * 8
+        MOV     CX, DI
+        SHL     DI, 2                   ; DI = frame * 32
+        ADD     DI, CX                  ; DI = frame * 40
+        ADD     DI, BX                  ; DI aponta para o frame correto
+        POP     AX
 
-        ; ---- cabeca: circulo cheio de raio 10, centro 10 px acima do ombro
-        MOV     AX, [base_x]
+        ; 3. Lê Ponto 0: Offset do Ombro (relativo à base JX, JY)
+        CALL    le_ponto_ombro
+        MOV     [ombro_x], AX
+        MOV     [ombro_y], BX
+
+        ; 4. Lê Ponto 1: Vetor do Quadril (relativo ao Ombro)
+        CALL    le_ponto_quadril
+        MOV     [quadril_x], AX
+        MOV     [quadril_y], BX
+
+        ; ---- Cabeça: Raio 10, centro 10px acima do Ombro ----
+        MOV     AX, [ombro_x]
         PUSH    AX
-        MOV     AX, [base_y]
+        MOV     AX, [ombro_y]
         ADD     AX, 10
         PUSH    AX
         MOV     AX, 10
         PUSH    AX
         CALL    full_circle
 
-        ; ---- tronco: do ombro ate o quadril
-        MOV     AX, [base_x]
+        ; ---- Tronco: Linha do Ombro ao Quadril ----
+        MOV     AX, [ombro_x]
         PUSH    AX
-        MOV     AX, [base_y]
+        MOV     AX, [ombro_y]
         PUSH    AX
-        MOV     AX, [base_x]
+        MOV     AX, [quadril_x]
         PUSH    AX
-        MOV     AX, [base_y]
-        SUB     AX, [tam_corpo]
+        MOV     AX, [quadril_y]
         PUSH    AX
         CALL    linha_grossa
 
-        ; ---- 4 membros, cada um com 2 segmentos
+        ; ---- 4 Membros (2 Braços saem do Ombro, 2 Pernas saem do Quadril) ----
         MOV     CX, 4
 dj_membro:
-        MOV     AX, [base_x]            ; origem do membro
-        MOV     BX, [base_y]
         CMP     CX, 2
-        JA      dj_origem               ; CX = 4, 3 -> bracos (saem do ombro)
-        SUB     BX, [tam_corpo]         ; CX = 2, 1 -> pernas (saem do quadril)
-dj_origem:
+        JA      dj_origem_ombro
+        ; Pernas (CX = 2, 1) saem do Quadril
+        MOV     AX, [quadril_x]
+        MOV     BX, [quadril_y]
+        JMP     dj_origem_ok
+dj_origem_ombro:
+        ; Braços (CX = 4, 3) saem do Ombro
+        MOV     AX, [ombro_x]
+        MOV     BX, [ombro_y]
+dj_origem_ok:
+        MOV     [membro_base_x], AX
+        MOV     [membro_base_y], BX
+
         PUSH    AX                      ; x1 = origem
         PUSH    BX                      ; y1
-        CALL    le_ponto                ; AX,BX = articulacao (cotovelo/joelho)
+        CALL    le_ponto_membro         ; AX,BX = articulação
         PUSH    AX                      ; x2
         PUSH    BX                      ; y2
-        CALL    linha_grossa            ; origem -> articulacao
+        CALL    linha_grossa
 
-        PUSH    AX                      ; x1 = articulacao (linha_grossa preserva AX/BX)
+        PUSH    AX                      ; x1 = articulação
         PUSH    BX                      ; y1
-        CALL    le_ponto                ; AX,BX = extremidade (mao/pe)
+        CALL    le_ponto_membro         ; AX,BX = extremidade
         PUSH    AX                      ; x2
         PUSH    BX                      ; y2
-        CALL    linha_grossa            ; articulacao -> extremidade
+        CALL    linha_grossa
 
         LOOP    dj_membro
 
@@ -133,6 +152,43 @@ dj_origem:
         POP     BX
         POP     AX
         POPF
+        RET
+
+; Auxiliares de leitura de pontos
+le_ponto_ombro:
+        MOV     AX, [DI]
+        CMP     byte [espelho], 0
+        JE      lpo_sem
+        NEG     AX
+lpo_sem:
+        ADD     AX, [base_x]
+        MOV     BX, [DI+2]
+        ADD     BX, [base_y]
+        ADD     DI, 4
+        RET
+
+le_ponto_quadril:
+        MOV     AX, [DI]
+        CMP     byte [espelho], 0
+        JE      lpq_sem
+        NEG     AX
+lpq_sem:
+        ADD     AX, [ombro_x]
+        MOV     BX, [DI+2]
+        ADD     BX, [ombro_y]
+        ADD     DI, 4
+        RET
+
+le_ponto_membro:
+        MOV     AX, [DI]
+        CMP     byte [espelho], 0
+        JE      lpm_sem
+        NEG     AX
+lpm_sem:
+        ADD     AX, [membro_base_x]
+        MOV     BX, [DI+2]
+        ADD     BX, [membro_base_y]
+        ADD     DI, 4
         RET
 
 ;-----------------------------------------------------------------------------
@@ -730,8 +786,14 @@ fim_line:
 ;*****************************************************************************
 segment data public class=DATA
 
-base_x          DW      0           ; variaveis de trabalho de desenha_jogador
+base_x          DW      0           ; variáveis de trabalho de desenha_jogador
 base_y          DW      0
+ombro_x         DW      0
+ombro_y         DW      0
+quadril_x       DW      0
+quadril_y       DW      0
+membro_base_x   DW      0
+membro_base_y   DW      0
 espelho         DB      0
 
 
@@ -748,188 +810,202 @@ tabela_animacoes:
 ; =============================================================================
 v_idle:
     ; --- Frame 0 ---
-    dw -20, -20,   3, -17     ; Braco Esquerdo  (articulacao, mao)
-    dw  15, -15,  27,   4     ; Braco Direito
-    dw -15, -71, -22, -84     ; Perna Esquerda  (joelho, pe)
-    dw  15, -71,  22, -84     ; Perna Direita
+    dw   0,   0,   0, -46     ; Ombro na base, Quadril 46px abaixo (reto)
+    dw -20, -20,   3, -17     ; Braço Esq
+    dw  15, -15,  27,   4     ; Braço Dir
+    dw -15, -25, -22, -38     ; Perna Esq (relativa ao quadril)
+    dw  15, -25,  22, -38     ; Perna Dir (relativa ao quadril)
 
     ; --- Frame 1 ---
-    dw -20, -22,   3, -19     ; Braco Esquerdo
-    dw  15, -15,  27,   4     ; Braco Direito
-    dw -15, -71, -22, -84     ; Perna Esquerda
-    dw  15, -71,  22, -85     ; Perna Direita (corrigido: joelho em +15)
+    dw   0,  -1,   0, -45     ; Ombro e quadril afundam 1px (respirando)
+    dw -20, -22,   3, -19
+    dw  15, -15,  27,   4
+    dw -15, -24, -22, -37
+    dw  15, -24,  22, -38
 
 ; =============================================================================
-; Animação de Caminhada (10 Frames)
-; Cada frame: 8 pares (X,Y) = 32 bytes.
+; Animação de Caminhada (10 Frames - Pernas relativas ao Quadril)
 ; =============================================================================
 v_anda:
     ; --- Frame 0 (Perna Dir frente, Perna Esq esticada atrás) ---
-    dw -20, -20,   3, -17     ; Braço Esq (Guarda, posição inicial)
+    dw   0,   0,   0, -46     ; Ombro na base, Quadril 46px abaixo
+    dw -20, -20,   3, -17     ; Braço Esq 
     dw  15, -15,  27,   4     ; Braço Dir 
-    dw -15, -64, -24, -84     ; Perna Esq (Atrás, prestes a subir)
-    dw  15, -64,  24, -84     ; Perna Dir (Frente, plantada no chão)
+    dw -15, -18, -24, -38     ; Perna Esq
+    dw  15, -18,  24, -38     ; Perna Dir
 
     ; --- Frame 1 (Transição) ---
-    dw -19, -21,   4, -18     ; Braço Esq (Balanço leve para cima)
-    dw  14, -16,  26,   3     ; Braço Dir 
-    dw -10, -62, -10, -75     ; Perna Esq (Joelho dobra, pé sai do chão)
-    dw  10, -66,  12, -84     ; Perna Dir (Deslizando para trás)
+    dw   0,   0,   0, -46
+    dw -19, -21,   4, -18
+    dw  14, -16,  26,   3
+    dw -10, -16, -10, -29
+    dw  10, -20,  12, -38
 
     ; --- Frame 2 (Cruzamento - Perna do ar passa pela perna do chão) ---
-    dw -18, -22,   5, -19     ; Braço Esq (Ponto mais alto do balanço)
-    dw  13, -17,  25,   2     ; Braço Dir 
-    dw  10, -58,   5, -70     ; Perna Esq (No ar, cruzando o centro)
-    dw   5, -67,   0, -84     ; Perna Dir (No centro do corpo)
+    dw   0,   0,   0, -46
+    dw -18, -22,   5, -19
+    dw  13, -17,  25,   2
+    dw  10, -12,   5, -24
+    dw   5, -21,   0, -38
 
     ; --- Frame 3 (Alcançando a frente) ---
-    dw -19, -21,   4, -18     ; Braço Esq (Descendo)
-    dw  14, -16,  26,   3     ; Braço Dir 
-    dw  18, -62,  15, -75     ; Perna Esq (Descendo à frente)
-    dw  -5, -66, -12, -84     ; Perna Dir (Continuando para trás)
+    dw   0,   0,   0, -46
+    dw -19, -21,   4, -18
+    dw  14, -16,  26,   3
+    dw  18, -16,  15, -29
+    dw  -5, -20, -12, -38
 
     ; --- Frame 4 (Pré-contato) ---
-    dw -20, -20,   3, -17     ; Braço Esq (Volta ao centro)
-    dw  15, -15,  27,   4     ; Braço Dir 
-    dw  17, -63,  22, -80     ; Perna Esq (Calcanhar quase tocando o chão)
-    dw -15, -64, -24, -84     ; Perna Dir (Máxima extensão atrás)
+    dw   0,   0,   0, -46
+    dw -20, -20,   3, -17
+    dw  15, -15,  27,   4
+    dw  17, -17,  22, -34
+    dw -15, -18, -24, -38
 
     ; --- Frame 5 (Inversão de Passo - Perna Esq frente, Perna Dir atrás) ---
-    dw -21, -19,   2, -16     ; Braço Esq (Balanço leve para baixo)
-    dw  16, -14,  28,   5     ; Braço Dir 
-    dw  15, -64,  24, -84     ; Perna Esq (Frente, plantada no chão)
-    dw -15, -64, -24, -84     ; Perna Dir (Atrás, prestes a subir)
+    dw   0,   0,   0, -46
+    dw -21, -19,   2, -16
+    dw  16, -14,  28,   5
+    dw  15, -18,  24, -38
+    dw -15, -18, -24, -38
 
     ; --- Frame 6 (Transição 2) ---
-    dw -22, -18,   1, -15     ; Braço Esq 
-    dw  17, -13,  29,   6     ; Braço Dir 
-    dw  10, -66,  12, -84     ; Perna Esq (Deslizando para trás)
-    dw -10, -62, -10, -75     ; Perna Dir (Joelho dobra, pé sai do chão)
+    dw   0,   0,   0, -46
+    dw -22, -18,   1, -15
+    dw  17, -13,  29,   6
+    dw  10, -20,  12, -38
+    dw -10, -16, -10, -29
 
     ; --- Frame 7 (Cruzamento 2) ---
-    dw -23, -17,   0, -14     ; Braço Esq (Ponto mais baixo do balanço)
-    dw  18, -12,  30,   7     ; Braço Dir 
-    dw   5, -67,   0, -84     ; Perna Esq (No centro do corpo)
-    dw  10, -58,   5, -70     ; Perna Dir (No ar, cruzando o centro)
+    dw   0,   0,   0, -46
+    dw -23, -17,   0, -14
+    dw  18, -12,  30,   7
+    dw   5, -21,   0, -38
+    dw  10, -12,   5, -24
 
     ; --- Frame 8 (Alcançando a frente 2) ---
-    dw -22, -18,   1, -15     ; Braço Esq (Subindo)
-    dw  17, -13,  29,   6     ; Braço Dir 
-    dw  -5, -66, -12, -84     ; Perna Esq (Continuando para trás)
-    dw  18, -62,  15, -75     ; Perna Dir (Descendo à frente)
+    dw   0,   0,   0, -46
+    dw -22, -18,   1, -15
+    dw  17, -13,  29,   6
+    dw  -5, -20, -12, -38
+    dw  18, -16,  15, -29
 
     ; --- Frame 9 (Pré-contato 2) ---
-    dw -21, -19,   2, -16     ; Braço Esq (Quase no centro)
-    dw  16, -14,  28,   5     ; Braço Dir 
-    dw -15, -64, -24, -84     ; Perna Esq (Máxima extensão atrás)
-    dw  17, -63,  22, -80     ; Perna Dir (Calcanhar quase tocando o chão)
+    dw   0,   0,   0, -46
+    dw -21, -19,   2, -16
+    dw  16, -14,  28,   5
+    dw -15, -18, -24, -38
+    dw  17, -17,  22, -34
 
 ; =============================================================================
-; Animação de Soco (20 Frames)
-; Cada frame: 8 pares (X,Y) = 32 bytes.
-; Estrutura:
-;   - Frames 0 e 1: Startup ultrarrápido (avanço direto para o golpe)
-;   - Frames 2 a 15: SUSTENTAÇÃO TOTAL (14 frames com o braço esticado em X=+52, Y=0)
-;   - Frames 16 a 19: Recovery (recolhimento para a guarda)
+; Animação de Soco (10 Frames - Pernas relativas ao Quadril)
 ; =============================================================================
 v_soco:
-    ; --- Frame 0: Startup 1 (Preparo rápido) ---
-    dw -20, -18,  -2, -15     ; Braço Esq (Guarda)
-    dw  10, -12,  20, -10     ; Braço Dir (Mão ganha velocidade)
-    dw -15, -71, -22, -84     ; Perna Esq 
-    dw  15, -71,  22, -84     ; Perna Dir 
+    ; --- Frame 0: Startup 1 ---
+    dw   0,   0,   0, -46
+    dw -20, -18,  -2, -15
+    dw  10, -12,  20, -10
+    dw -15, -25, -22, -38
+    dw  15, -25,  22, -38
 
-    ; --- Frame 1: Startup 2 (Extensão quase completa) ---
-    dw -22, -18,  -5, -15     ; Braço Esq 
-    dw  18,  -5,  36,  -3     ; Braço Dir 
-    dw -18, -71, -25, -84     ; Perna Esq 
-    dw  18, -71,  25, -84     ; Perna Dir 
+    ; --- Frame 1: Startup 2 ---
+    dw   0,   0,   0, -46
+    dw -22, -18,  -5, -15
+    dw  18,  -5,  36,  -3
+    dw -18, -25, -25, -38
+    dw  18, -25,  25, -38
 
-    ; --- Frames 2 a 5: BRAÇO TOTALMENTE EXTENDIDO (LOCKOUT EM Y=0, X=+52) ---
+    ; --- Frames 2 a 5: LOCKOUT TOTAL (X=+52, Y=0) ---
     ; Frame 2
-    dw -20, -18,  -2, -15,   26,   0,  52,   0,  -22, -71, -30, -84,   22, -71,  30, -84
+    dw   0,   0,   0, -46,  -20, -18,  -2, -15,   26,   0,  52,   0,  -22, -25, -30, -38,   22, -25,  30, -38
     ; Frame 3
-    dw -20, -18,  -2, -15,   26,   0,  52,   0,  -22, -71, -30, -84,   22, -71,  30, -84
+    dw   0,   0,   0, -46,  -20, -18,  -2, -15,   26,   0,  52,   0,  -22, -25, -30, -38,   22, -25,  30, -38
     ; Frame 4
-    dw -20, -18,  -2, -15,   26,   0,  52,   0,  -22, -71, -30, -84,   22, -71,  30, -84
+    dw   0,   0,   0, -46,  -20, -18,  -2, -15,   26,   0,  52,   0,  -22, -25, -30, -38,   22, -25,  30, -38
     ; Frame 5
-    dw -20, -18,  -2, -15,   26,   0,  52,   0,  -22, -71, -30, -84,   22, -71,  30, -84
+    dw   0,   0,   0, -46,  -20, -18,  -2, -15,   26,   0,  52,   0,  -22, -25, -30, -38,   22, -25,  30, -38
 
-    ; --- Frame 6: Recovery 1 (Início do recolhimento) ---
-    dw -20, -18,  -2, -15     ; Braço Esq
-    dw  20,  -6,  38,  -4     ; Braço Dir (Puxando de volta)
-    dw -20, -71, -27, -84     ; Perna Esq 
-    dw  20, -71,  27, -84     ; Perna Dir 
+    ; --- Frame 6: Recovery 1 ---
+    dw   0,   0,   0, -46
+    dw -20, -18,  -2, -15
+    dw  20,  -6,  38,  -4
+    dw -20, -25, -27, -38
+    dw  20, -25,  27, -38
 
     ; --- Frame 7: Recovery 2 ---
-    dw -20, -19,   0, -16     ; Braço Esq
-    dw  14, -10,  26,  -8     ; Braço Dir
-    dw -18, -71, -25, -84     ; Perna Esq
-    dw  18, -71,  25, -84     ; Perna Dir
+    dw   0,   0,   0, -46
+    dw -20, -19,   0, -16
+    dw  14, -10,  26,  -8
+    dw -18, -25, -25, -38
+    dw  18, -25,  25, -38
 
     ; --- Frame 8: Recovery 3 ---
-    dw -20, -20,   3, -17     ; Braço Esq
-    dw  10, -14,  18, -12     ; Braço Dir
-    dw -16, -71, -23, -84     ; Perna Esq
-    dw  16, -71,  23, -84     ; Perna Dir
+    dw   0,   0,   0, -46
+    dw -20, -20,   3, -17
+    dw  10, -14,  18, -12
+    dw -16, -25, -23, -38
+    dw  16, -25,  23, -38
 
-    ; --- Frame 9: Retorno final à guarda ---
-    dw -20, -20,   3, -17     ; Braço Esq
-    dw  12, -15,  24,  -2     ; Braço Dir (Volta ao idle)
-    dw -15, -71, -22, -84     ; Perna Esq
-    dw  15, -71,  22, -84     ; Perna Dir
+    ; --- Frame 9: Retorno à guarda ---
+    dw   0,   0,   0, -46
+    dw -20, -20,   3, -17
+    dw  12, -15,  24,  -2
+    dw -15, -25, -22, -38
+    dw  15, -25,  22, -38
 
 ; =============================================================================
-; Animação de Chute / Rasteira Baixa (10 Frames)
-; Cada frame: 8 pares (X,Y) = 32 bytes.
-; Estrutura:
-;   - Frames 0 a 2 : Preparação (Início da agachada, mão no chão p/ apoio)
-;   - Frames 3 a 6 : PERMANÊNCIA / VARREDURA (4 frames com perna em X=+55, Y=-84)
-;   - Frames 7 a 9 : Recuo (Recolhimento da perna e levantada do tronco)
+; Animação de Rasteira Baixa (10 Frames - Ajustada sem apagar o chão)
+; Margem do Chão: Ponto mais baixo fica em Y=74 (preserva a arena em Y=70)
 ; =============================================================================
 v_chute:
-    ; --- Frame 0: Startup 1 (Guarda abaixa e joelhos flexionam) ---
-    dw -18, -25,  -5, -20     ; Braço Esq
-    dw  12, -22,  22, -15     ; Braço Dir
-    dw -15, -68, -22, -84     ; Perna Esq (Apoio atrás)
-    dw  12, -68,  18, -84     ; Perna Dir (Começa a agachar)
+    ; --- Frame 0: Startup 1 (Corpo desce levemente) ---
+    dw   0, -12,   0, -42     ; Ombro em -12px
+    dw -18, -15,  -5, -10     ; Braço Esq
+    dw  12, -12,  22,  -5     ; Braço Dir
+    dw -15, -18, -22, -34     ; Perna Esq
+    dw  12, -18,  18, -34     ; Perna Dir
 
-    ; --- Frame 1: Startup 2 (Mão esquerda vai ao chão para apoio) ---
-    dw -15, -35, -25, -45     ; Braço Esq (Mão plantada no chão)
-    dw  10, -28,  20, -22     ; Braço Dir (Tronco inclina para frente)
-    dw -15, -60, -22, -84     ; Perna Esq (Joelho de apoio dobra bastante)
-    dw   5, -62,   0, -80     ; Perna Dir (Perna de ataque recolhe p/ impulso)
+    ; --- Frame 1: Startup 2 (Queda rápida, mão busca o chão) ---
+    dw   0, -30,  -5, -25     ; Ombro em -30px
+    dw -15, -18, -22, -28     ; Braço Esq
+    dw  10, -10,  20,  -5     ; Braço Dir
+    dw -15, -12, -22, -24     ; Perna Esq
+    dw   8, -10,  15, -18     ; Perna Dir
 
-    ; --- Frame 2: Startup 3 (Projeção da perna rente ao chão) ---
-    dw -15, -40, -25, -45     ; Braço Esq (Apoio firme)
-    dw  12, -28,  24, -20     ; Braço Dir
-    dw -18, -62, -25, -84     ; Perna Esq
-    dw  20, -75,  38, -82     ; Perna Dir (Esticando a rasteira em X=+38)
+    ; --- Frame 2: Startup 3 (Prestes a atingir a rasteira) ---
+    dw   0, -45,  -8, -16     ; Ombro em -45px
+    dw -12, -16, -22, -30     ; Braço Esq
+    dw   8, -10,  18, -14     ; Braço Dir
+    dw -16, -10,  -8, -17     ; Perna Esq
+    dw  20,  -6,  42, -13     ; Perna Dir
 
-    ; --- Frames 3 a 6: RASTEIRA EXTENDIDA TOTALMENTE (VARREDURA RENDE AO CHÃO) ---
+    ; --- Frames 3 a 6: PERMANÊNCIA (POSTURA AJUSTADA - MARGEM DE 4PX DO CHÃO) ---
     ; Frame 3 (Active 1)
-    dw -15, -40, -25, -45,   15, -25,  28, -20,  -18, -62, -26, -84,   28, -80,  55, -84
+    dw 0,-50, -10,-14,  -12,-14,-22,-30,  8,-10,18,-16,  -18,-12,-6,-18,  28,-8,58,-17
     ; Frame 4 (Active 2)
-    dw -15, -40, -25, -45,   15, -25,  28, -20,  -18, -62, -26, -84,   28, -80,  55, -84
+    dw 0,-50, -10,-14,  -12,-14,-22,-30,  8,-10,18,-16,  -18,-12,-6,-18,  28,-8,58,-17
     ; Frame 5 (Active 3)
-    dw -15, -40, -25, -45,   15, -25,  28, -20,  -18, -62, -26, -84,   28, -80,  55, -84
+    dw 0,-50, -10,-14,  -12,-14,-22,-30,  8,-10,18,-16,  -18,-12,-6,-18,  28,-8,58,-17
     ; Frame 6 (Active 4)
-    dw -15, -40, -25, -45,   15, -25,  28, -20,  -18, -62, -26, -84,   28, -80,  55, -84
+    dw 0,-50, -10,-14,  -12,-14,-22,-30,  8,-10,18,-16,  -18,-12,-6,-18,  28,-8,58,-17
 
-    ; --- Frame 7: Recovery 1 (Recolhendo a perna do chute) ---
-    dw -15, -38, -25, -45     ; Braço Esq
-    dw  12, -26,  22, -20     ; Braço Dir
-    dw -16, -65, -24, -84     ; Perna Esq
-    dw  18, -70,  32, -84     ; Perna Dir (Pé descola da frente)
+    ; --- Frame 7: Recovery 1 (Perna recolhe, tronco começa a subir) ---
+    dw   0, -35,  -8, -22     ; Ombro sobe para -35px
+    dw -12, -15, -22, -25     ; Mão descola do chão
+    dw  10, -10,  20,  -8     ; Braço Dir
+    dw -16, -12, -18, -25     ; Perna Esq
+    dw  20, -12,  35, -23     ; Perna Dir
 
-    ; --- Frame 8: Recovery 2 (Levantando o tronco) ---
-    dw -18, -25,  -5, -20     ; Braço Esq (Mão descola do chão)
-    dw  14, -20,  24, -10     ; Braço Dir
-    dw -15, -68, -22, -84     ; Perna Esq
-    dw  14, -70,  20, -84     ; Perna Dir
+    ; --- Frame 8: Recovery 2 (Subindo o corpo) ---
+    dw   0, -18,  -4, -34     ; Ombro em -18px
+    dw -16, -15,  -5, -10
+    dw  12, -12,  22,  -5
+    dw -15, -18, -22, -34
+    dw  14, -18,  20, -34
 
-    ; --- Frame 9: Recovery 3 (Quase de volta à posição de Idle) ---
+    ; --- Frame 9: Recovery 3 (Retorno ao Idle) ---
+    dw   0,   0,   0, -46     ; Ombro e quadril na posição padrão
     dw -20, -20,   3, -17     ; Braço Esq
     dw  15, -15,  27,   4     ; Braço Dir
-    dw -15, -71, -22, -84     ; Perna Esq
-    dw  15, -71,  22, -84     ; Perna Dir
+    dw -15, -25, -22, -38     ; Perna Esq
+    dw  15, -25,  22, -38     ; Perna Dir
