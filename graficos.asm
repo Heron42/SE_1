@@ -1000,8 +1000,8 @@ v_chute:
     dw   0, -18,  -4, -34     ; Ombro em -18px
     dw -16, -15,  -5, -10
     dw  12, -12,  22,  -5
-    dw -15, -18, -22, -34
-    dw  14, -18,  20, -34
+    dw -15, -18, -22, -32
+    dw  14, -18,  20, -32
 
     ; --- Frame 9: Recovery 3 (Retorno ao Idle) ---
     dw   0,   0,   0, -46     ; Ombro e quadril na posição padrão
