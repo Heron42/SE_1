@@ -824,16 +824,112 @@ v_anda:
     dw -15, -64, -24, -84     ; Perna Esq (Máxima extensão atrás)
     dw  17, -63,  22, -80     ; Perna Dir (Calcanhar quase tocando o chão)
 
+; =============================================================================
+; Animação de Soco (20 Frames)
+; Cada frame: 8 pares (X,Y) = 32 bytes.
+; Estrutura:
+;   - Frames 0 e 1: Startup ultrarrápido (avanço direto para o golpe)
+;   - Frames 2 a 15: SUSTENTAÇÃO TOTAL (14 frames com o braço esticado em X=+52, Y=0)
+;   - Frames 16 a 19: Recovery (recolhimento para a guarda)
+; =============================================================================
 v_soco:
-	; --- Frame 0 ---
-    dw -20, -20,   3, -17     ; Braco Esquerdo  (articulacao, mao)
-    dw  15, -15,  27,   4     ; Braco Direito
-    dw -15, -71, -22, -84     ; Perna Esquerda  (joelho, pe)
-    dw  15, -71,  22, -84     ; Perna Direita
+    ; --- Frame 0: Startup 1 (Preparo rápido) ---
+    dw -20, -18,  -2, -15     ; Braço Esq (Guarda)
+    dw  10, -12,  20, -10     ; Braço Dir (Mão ganha velocidade)
+    dw -15, -71, -22, -84     ; Perna Esq 
+    dw  15, -71,  22, -84     ; Perna Dir 
 
+    ; --- Frame 1: Startup 2 (Extensão quase completa) ---
+    dw -22, -18,  -5, -15     ; Braço Esq 
+    dw  18,  -5,  36,  -3     ; Braço Dir 
+    dw -18, -71, -25, -84     ; Perna Esq 
+    dw  18, -71,  25, -84     ; Perna Dir 
+
+    ; --- Frames 2 a 5: BRAÇO TOTALMENTE EXTENDIDO (LOCKOUT EM Y=0, X=+52) ---
+    ; Frame 2
+    dw -20, -18,  -2, -15,   26,   0,  52,   0,  -22, -71, -30, -84,   22, -71,  30, -84
+    ; Frame 3
+    dw -20, -18,  -2, -15,   26,   0,  52,   0,  -22, -71, -30, -84,   22, -71,  30, -84
+    ; Frame 4
+    dw -20, -18,  -2, -15,   26,   0,  52,   0,  -22, -71, -30, -84,   22, -71,  30, -84
+    ; Frame 5
+    dw -20, -18,  -2, -15,   26,   0,  52,   0,  -22, -71, -30, -84,   22, -71,  30, -84
+
+    ; --- Frame 6: Recovery 1 (Início do recolhimento) ---
+    dw -20, -18,  -2, -15     ; Braço Esq
+    dw  20,  -6,  38,  -4     ; Braço Dir (Puxando de volta)
+    dw -20, -71, -27, -84     ; Perna Esq 
+    dw  20, -71,  27, -84     ; Perna Dir 
+
+    ; --- Frame 7: Recovery 2 ---
+    dw -20, -19,   0, -16     ; Braço Esq
+    dw  14, -10,  26,  -8     ; Braço Dir
+    dw -18, -71, -25, -84     ; Perna Esq
+    dw  18, -71,  25, -84     ; Perna Dir
+
+    ; --- Frame 8: Recovery 3 ---
+    dw -20, -20,   3, -17     ; Braço Esq
+    dw  10, -14,  18, -12     ; Braço Dir
+    dw -16, -71, -23, -84     ; Perna Esq
+    dw  16, -71,  23, -84     ; Perna Dir
+
+    ; --- Frame 9: Retorno final à guarda ---
+    dw -20, -20,   3, -17     ; Braço Esq
+    dw  12, -15,  24,  -2     ; Braço Dir (Volta ao idle)
+    dw -15, -71, -22, -84     ; Perna Esq
+    dw  15, -71,  22, -84     ; Perna Dir
+
+; =============================================================================
+; Animação de Chute / Rasteira Baixa (10 Frames)
+; Cada frame: 8 pares (X,Y) = 32 bytes.
+; Estrutura:
+;   - Frames 0 a 2 : Preparação (Início da agachada, mão no chão p/ apoio)
+;   - Frames 3 a 6 : PERMANÊNCIA / VARREDURA (4 frames com perna em X=+55, Y=-84)
+;   - Frames 7 a 9 : Recuo (Recolhimento da perna e levantada do tronco)
+; =============================================================================
 v_chute:
-	; --- Frame 0 ---
-    dw -20, -20,   3, -17     ; Braco Esquerdo  (articulacao, mao)
-    dw  15, -15,  27,   4     ; Braco Direito
-    dw -15, -71, -22, -84     ; Perna Esquerda  (joelho, pe)
-    dw  15, -71,  22, -84     ; Perna Direita
+    ; --- Frame 0: Startup 1 (Guarda abaixa e joelhos flexionam) ---
+    dw -18, -25,  -5, -20     ; Braço Esq
+    dw  12, -22,  22, -15     ; Braço Dir
+    dw -15, -68, -22, -84     ; Perna Esq (Apoio atrás)
+    dw  12, -68,  18, -84     ; Perna Dir (Começa a agachar)
+
+    ; --- Frame 1: Startup 2 (Mão esquerda vai ao chão para apoio) ---
+    dw -15, -35, -25, -45     ; Braço Esq (Mão plantada no chão)
+    dw  10, -28,  20, -22     ; Braço Dir (Tronco inclina para frente)
+    dw -15, -60, -22, -84     ; Perna Esq (Joelho de apoio dobra bastante)
+    dw   5, -62,   0, -80     ; Perna Dir (Perna de ataque recolhe p/ impulso)
+
+    ; --- Frame 2: Startup 3 (Projeção da perna rente ao chão) ---
+    dw -15, -40, -25, -45     ; Braço Esq (Apoio firme)
+    dw  12, -28,  24, -20     ; Braço Dir
+    dw -18, -62, -25, -84     ; Perna Esq
+    dw  20, -75,  38, -82     ; Perna Dir (Esticando a rasteira em X=+38)
+
+    ; --- Frames 3 a 6: RASTEIRA EXTENDIDA TOTALMENTE (VARREDURA RENDE AO CHÃO) ---
+    ; Frame 3 (Active 1)
+    dw -15, -40, -25, -45,   15, -25,  28, -20,  -18, -62, -26, -84,   28, -80,  55, -84
+    ; Frame 4 (Active 2)
+    dw -15, -40, -25, -45,   15, -25,  28, -20,  -18, -62, -26, -84,   28, -80,  55, -84
+    ; Frame 5 (Active 3)
+    dw -15, -40, -25, -45,   15, -25,  28, -20,  -18, -62, -26, -84,   28, -80,  55, -84
+    ; Frame 6 (Active 4)
+    dw -15, -40, -25, -45,   15, -25,  28, -20,  -18, -62, -26, -84,   28, -80,  55, -84
+
+    ; --- Frame 7: Recovery 1 (Recolhendo a perna do chute) ---
+    dw -15, -38, -25, -45     ; Braço Esq
+    dw  12, -26,  22, -20     ; Braço Dir
+    dw -16, -65, -24, -84     ; Perna Esq
+    dw  18, -70,  32, -84     ; Perna Dir (Pé descola da frente)
+
+    ; --- Frame 8: Recovery 2 (Levantando o tronco) ---
+    dw -18, -25,  -5, -20     ; Braço Esq (Mão descola do chão)
+    dw  14, -20,  24, -10     ; Braço Dir
+    dw -15, -68, -22, -84     ; Perna Esq
+    dw  14, -70,  20, -84     ; Perna Dir
+
+    ; --- Frame 9: Recovery 3 (Quase de volta à posição de Idle) ---
+    dw -20, -20,   3, -17     ; Braço Esq
+    dw  15, -15,  27,   4     ; Braço Dir
+    dw -15, -71, -22, -84     ; Perna Esq
+    dw  15, -71,  22, -84     ; Perna Dir
