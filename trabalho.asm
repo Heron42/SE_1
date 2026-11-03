@@ -202,6 +202,12 @@ le_controles:
         ; ------------------------- Jogador 1 (W / A / D)
         MOV     SI, jogador1
         MOV     DI, jogador2
+
+        CMP     byte [SI+JESTADO], 2    ; Jogador 1 está socando -> bloqueia movimentos
+        JE      lc_p2
+        CMP     byte [SI+JESTADO], 3    ; Jogador 1 está chutando -> bloqueia movimentos
+        JE      lc_p2
+
         CMP     byte [teclas+TEC_W], 0
         JE      lc_p1_esq
         INC     BL
@@ -215,16 +221,35 @@ lc_p1_esq:
         CALL    mover_jogador
 lc_p1_dir:
         CMP     byte [teclas+TEC_D], 0
-        JE      lc_p2
+        JE      lc_p1_soco
         INC     BL
         MOV     AX, VELOCIDADE
         MOV     byte [jogador1 + JESTADO], 1
         CALL    mover_jogador
+lc_p1_soco:
+        CMP     byte [teclas+TEC_T], 0
+        JE      lc_p1_chute
+        INC     BL
+        MOV     byte [jogador1 + JESTADO], 2
+        MOV     byte [jogador1 + JFRAME], 0
+        JMP     lc_p2
+lc_p1_chute:
+        CMP     byte [teclas+TEC_R], 0
+        JE      lc_p2
+        INC     BL
+        MOV     byte [jogador1 + JESTADO], 3
+        MOV     byte [jogador1 + JFRAME], 0
 
         ; ------------------------- Jogador 2 (setas)
 lc_p2:
         MOV     SI, jogador2
         MOV     DI, jogador1
+
+        CMP     byte [SI+JESTADO], 2    ; Jogador 2 está socando -> bloqueia movimentos
+        JE      lc_fim
+        CMP     byte [SI+JESTADO], 3    ; Jogador 2 está chutando -> bloqueia movimentos
+        JE      lc_fim
+
         CMP     byte [teclas+TEC_CIMA], 0
         JE      lc_p2_esq
         INC     BH
@@ -238,19 +263,41 @@ lc_p2_esq:
         CALL    mover_jogador
 lc_p2_dir:
         CMP     byte [teclas+TEC_DIR], 0
-        JE      lc_fim
+        JE      lc_p2_soco
         INC     BH
         MOV     AX, VELOCIDADE
         MOV     byte [jogador2 + JESTADO], 1
         CALL    mover_jogador
+lc_p2_soco:
+        CMP     byte [teclas+TEC_M], 0
+        JE      lc_p2_chute
+        INC     BH
+        MOV     byte [jogador2 + JESTADO], 2
+        MOV     byte [jogador2 + JFRAME], 0
+lc_p2_chute:
+        CMP     byte [teclas+TEC_N], 0
+        JE      lc_fim
+        INC     BH
+        MOV     byte [jogador2 + JESTADO], 3
+        MOV     byte [jogador2 + JFRAME], 0
 lc_fim:
         CMP     BL, 0
         JNE     movp2
+        CMP     byte [jogador1+JESTADO], 2
+        JE      movp2
+        CMP     byte [jogador1+JESTADO], 3
+        JE      movp2
         MOV     byte [jogador1 + JESTADO], 0
+        MOV     byte [jogador1 + JFRAME], 0
 movp2:
         CMP     BH, 0
         JNE     lc_fim2
+        CMP     byte [jogador2+JESTADO], 2
+        JE      lc_fim2
+        CMP     byte [jogador2+JESTADO], 3
+        JE      lc_fim2
         MOV     byte [jogador2 + JESTADO], 0
+        MOV     byte [jogador2 + JFRAME], 0
 lc_fim2:
         POP     DI
         POP     SI
@@ -485,7 +532,7 @@ atualiza_animacao:
 
         ; 1. Lê o estado atual do jogador
         MOV     BL, [SI+JESTADO]
-        XOR     BH, BH              ; BX = JESTADO
+        XOR     BH, BH
 
         ; 2. Pega o número máximo de frames para este estado
         MOV     AL, [limite_frames + BX] 
@@ -496,7 +543,19 @@ atualiza_animacao:
         ; 4. Verifica se estourou o limite
         CMP     [SI+JFRAME], AL
         JL      aa_fim              ; Se frame < limite, termina
-        MOV     byte [SI+JFRAME], 0 ; Se chegou no limite, volta pro frame 0
+
+        ; Se chegou ao limite do ciclo:
+        MOV     byte [SI+JFRAME], 0 ; Reseta o frame para 0
+
+        ; Se estiver num golpe (Estado 2: Soco, Estado 3: Chute), reseta para Idle (0)
+        CMP     byte [SI+JESTADO], 2
+        JE      aa_reseta_idle
+        CMP     byte [SI+JESTADO], 3
+        JE      aa_reseta_idle
+        JMP     aa_fim
+
+aa_reseta_idle:
+        MOV     byte [SI+JESTADO], 0
 
 aa_fim:
         POP     BX
@@ -761,7 +820,7 @@ JDIR            EQU     10          ; db  0 = olha p/ direita, 1 = p/ esquerda
 JDIRANT         EQU     11          ; db  direcao desenhada por ultimo
 JCOR            EQU     12          ; db  cor do lutador
 JENERGIA        EQU     13          ; db  energia (comeca em 10)
-JESTADO         EQU     14          ; db  0 idle, 1 dir, 2 esq, 3 soco, 4 chute...
+JESTADO         EQU     14          ; db  0 idle, 1 movendo, 2 soco, 3 chute ...
                                     ; byte 15: reserva (alinhamento)
 JVY             EQU     16          ; dw  velocidade vertical (positiva = sobe)
 JPULO           EQU     18          ; db  1 = no ar, 0 = no chao
@@ -800,8 +859,8 @@ jogador2:
 ; =============================================================================
 
 ; Limites de frames para cada estado
-limite_frames 	db 	1, 10, 1, 1 ; Idle, andar, soco, chute
+limite_frames 	db 	1, 10, 10, 10 ; Idle, andar, soco, chute
 
 segment stack stack
-        resb    1024
+        resb    2048
 stacktop:
