@@ -803,6 +803,7 @@ tabela_animacoes:
         dw      v_anda      ; Estado 1
         dw      v_soco      ; Estado 2
         dw      v_chute     ; Estado 3
+        dw      v_abaixa    ; Estado 4
 
 ; =============================================================================
 ; Animação Estacionária (6 Frames)
@@ -1009,3 +1010,31 @@ v_chute:
     dw  15, -15,  27,   4     ; Braço Dir
     dw -15, -25, -22, -38     ; Perna Esq
     dw  15, -25,  22, -38     ; Perna Dir
+
+; =============================================================================
+; Animação Abaixando (Estado 4 - 3 Frames rápidos de descida, trava no Frame 2)
+; Pés sempre fixos em Y=72 (-84px da base Y_CHAO=156).
+; =============================================================================
+v_abaixa:
+    ; --- Frame 0: Início da descida (Ombro -12px, Joelhos começam a dobrar) ---
+    dw   0, -12,   0, -40     ; Ombro -12px (Y=144), Quadril -40px (Y=104)
+    dw -18, -18,   3, -14     ; Braço Esq
+    dw  14, -14,  25,   4     ; Braço Dir
+    dw -16, -18, -21, -32     ; Perna Esq (pé em 104-32 = 72)
+    dw  16, -18,  21, -32     ; Perna Dir (pé em 104-32 = 72)
+
+    ; --- Frame 1: Meio da descida (Ombro -24px, Guarda fechando) ---
+    dw   0, -24,   0, -35     ; Ombro -24px (Y=132), Quadril -35px (Y=97)
+    dw -17, -16,   4, -11     ; Braço Esq
+    dw  13, -13,  23,   4     ; Braço Dir
+    dw -17, -12, -20, -25     ; Perna Esq (pé em 97-25 = 72)
+    dw  17, -12,  20, -25     ; Perna Dir (pé em 97-25 = 72)
+
+    ; --- Frame 2: Totalmente abaixado (Ombro -36px, permanece aqui) ---
+    dw   0, -36,   0, -30     ; Ombro -36px (Y=120), Quadril -30px (Y=90)
+    dw -16, -14,   4,  -8     ; Braço Esq (em guarda baixa)
+    dw  12, -12,  22,   4     ; Braço Dir (protegendo o rosto)
+    dw -18,  -6, -20, -18     ; Perna Esq (joelho dobrado, pé em 90-18 = 72)
+    dw  18,  -6,  20, -18     ; Perna Dir (joelho dobrado, pé em 90-18 = 72)
+
+

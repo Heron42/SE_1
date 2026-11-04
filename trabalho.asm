@@ -29,6 +29,10 @@
 ; ------------------------------- Simbolos externos / publicos -----------------
 extern  desenha_jogador         ; graficos.asm
 extern  line                    ; graficos.asm
+extern  circle                  ; graficos.asm
+extern  full_circle             ; graficos.asm
+extern  cursor                  ; graficos.asm
+extern  caracter                ; graficos.asm
 
 global  cor
 global  deltAX
@@ -70,18 +74,24 @@ segment code public class=CODE
         INT     10h
         MOV     [modo_anterior], AL
 
-        MOV     AH, 0                       ; modo 12h: 640x480, 16 cores
+novo_round:
+        MOV     AH, 0                       ; limpa tela 
         MOV     AL, 12h
         INT     10h
 
-; ---------------------------------------------- Cena inicial
+        CALL    reseta_lutadores
+        MOV     byte [tique], 0
+        MOV     WORD [segundos], 0
+        MOV     WORD [ultimo_seg], 0FFFFh
+        MOV     byte [round_acabou], 0
+
         CALL    desenha_arena
         MOV     SI, jogador1
         CALL    pinta_jogador
         MOV     SI, jogador2
         CALL    pinta_jogador
 
-        MOV     AX, [tique_jogo]            ; sincroniza o contador do loop
+        MOV     AX, [tique_jogo]
         MOV     [ultimo_tique], AX
 
 ; =============================================================================
@@ -98,7 +108,9 @@ loop_jogo:
         ; ---- 1. Eventos pontuais (buffer circular) -------------------------
         CALL    trata_eventos
         CMP     byte [sair_flag], 1
-        JE      fim
+        JNE     lj_cont
+        JMP     fim
+lj_cont:
 
         ; ---- 2. Teclas mantidas pressionadas (tabela de estado) ------------
         CALL    le_controles
@@ -119,6 +131,25 @@ loop_jogo:
         CALL    atualiza_animacao
         MOV     SI, jogador2
         CALL    atualiza_animacao
+
+        ; ---- 5.5 Verifica colisao de golpes --------------------------------
+        MOV     SI, jogador1                ; J1 atacando J2
+        MOV     DI, jogador2
+        CALL    verifica_golpe
+        MOV     SI, jogador2                ; J2 atacando J1
+        MOV     DI, jogador1
+        CALL    verifica_golpe
+
+        CALL    desenha_tempo
+        CALL    verifica_fim_round
+        CMP     byte [vencedor], 0
+        JE      lj_checa_round
+        JMP     fim
+lj_checa_round:
+        CMP     byte [round_acabou], 0
+        JE      lj_desenha
+        JMP     novo_round
+lj_desenha:
 
         ; ---- 6. Redesenha apenas se algo mudou -----------------------------
         CALL    houve_mudanca               ; retorna AL = 1 se precisa redesenhar
@@ -199,46 +230,60 @@ le_controles:
         PUSH    DI
 
         XOR     BX, BX
-        ; ------------------------- Jogador 1 (W / A / D)
+        ; ------------------------- Jogador 1 (W / A / S / D)
         MOV     SI, jogador1
         MOV     DI, jogador2
 
         CMP     byte [SI+JESTADO], 2    ; Jogador 1 está socando -> bloqueia movimentos
-        JE      lc_p2
+        JE      lc_p1_bloq
         CMP     byte [SI+JESTADO], 3    ; Jogador 1 está chutando -> bloqueia movimentos
-        JE      lc_p2
+        JNE     lc_p1_w
+lc_p1_bloq:
+        JMP     lc_p2
 
+lc_p1_w:
         CMP     byte [teclas+TEC_W], 0
-        JE      lc_p1_esq
+        JE      lc_p1_abaixa
         INC     BL
         CALL    inicia_pulo
+lc_p1_abaixa:
+        CMP     byte [teclas+TEC_S], 0
+        JE      lc_p1_esq
+        CMP     byte [SI+JPULO], 0      ; so abaixa no chao
+        JNE     lc_p1_esq
+        INC     BL
+        CMP     byte [SI+JESTADO], 4    
+        JE      lc_p1_soco              ; mantem o frame atual abaixado
+        MOV     byte [SI+JESTADO], 4
+        MOV     byte [SI+JFRAME], 0
+        JMP     lc_p1_soco              ; abaixado não anda, mas ainda pode atacar, HAAAIII.... YAH!!!
 lc_p1_esq:
         CMP     byte [teclas+TEC_A], 0
         JE      lc_p1_dir
         INC     BL
         MOV     AX, -VELOCIDADE
-        MOV     byte [jogador1 + JESTADO], 1
+        MOV     byte [SI+JESTADO], 1
         CALL    mover_jogador
 lc_p1_dir:
         CMP     byte [teclas+TEC_D], 0
         JE      lc_p1_soco
         INC     BL
         MOV     AX, VELOCIDADE
-        MOV     byte [jogador1 + JESTADO], 1
+        MOV     byte [SI+JESTADO], 1
         CALL    mover_jogador
 lc_p1_soco:
         CMP     byte [teclas+TEC_T], 0
         JE      lc_p1_chute
         INC     BL
-        MOV     byte [jogador1 + JESTADO], 2
-        MOV     byte [jogador1 + JFRAME], 0
+        MOV     byte [SI+JESTADO], 2
+        MOV     byte [SI+JFRAME], 0
         JMP     lc_p2
 lc_p1_chute:
         CMP     byte [teclas+TEC_R], 0
         JE      lc_p2
         INC     BL
-        MOV     byte [jogador1 + JESTADO], 3
-        MOV     byte [jogador1 + JFRAME], 0
+        MOV     byte [SI+JESTADO], 3
+        MOV     byte [SI+JFRAME], 0
 
         ; ------------------------- Jogador 2 (setas)
 lc_p2:
@@ -246,40 +291,54 @@ lc_p2:
         MOV     DI, jogador1
 
         CMP     byte [SI+JESTADO], 2    ; Jogador 2 está socando -> bloqueia movimentos
-        JE      lc_fim
+        JE      lc_p2_bloq
         CMP     byte [SI+JESTADO], 3    ; Jogador 2 está chutando -> bloqueia movimentos
-        JE      lc_fim
+        JNE     lc_p2_cima
+lc_p2_bloq:
+        JMP     lc_fim
 
+lc_p2_cima:
         CMP     byte [teclas+TEC_CIMA], 0
-        JE      lc_p2_esq
+        JE      lc_p2_abaixa
         INC     BH
         CALL    inicia_pulo
+lc_p2_abaixa:
+        CMP     byte [teclas+TEC_BAIXO], 0
+        JE      lc_p2_esq
+        CMP     byte [SI+JPULO], 0
+        JNE     lc_p2_esq
+        INC     BH
+        CMP     byte [SI+JESTADO], 4
+        JE      lc_p2_soco
+        MOV     byte [SI+JESTADO], 4
+        MOV     byte [SI+JFRAME], 0
+        JMP     lc_p2_soco
 lc_p2_esq:
         CMP     byte [teclas+TEC_ESQ], 0
         JE      lc_p2_dir
         INC     BH
         MOV     AX, -VELOCIDADE
-        MOV     byte [jogador2 + JESTADO], 1
+        MOV     byte [SI+JESTADO], 1
         CALL    mover_jogador
 lc_p2_dir:
         CMP     byte [teclas+TEC_DIR], 0
         JE      lc_p2_soco
         INC     BH
         MOV     AX, VELOCIDADE
-        MOV     byte [jogador2 + JESTADO], 1
+        MOV     byte [SI+JESTADO], 1
         CALL    mover_jogador
 lc_p2_soco:
         CMP     byte [teclas+TEC_M], 0
         JE      lc_p2_chute
         INC     BH
-        MOV     byte [jogador2 + JESTADO], 2
-        MOV     byte [jogador2 + JFRAME], 0
+        MOV     byte [SI+JESTADO], 2
+        MOV     byte [SI+JFRAME], 0
 lc_p2_chute:
         CMP     byte [teclas+TEC_N], 0
         JE      lc_fim
         INC     BH
-        MOV     byte [jogador2 + JESTADO], 3
-        MOV     byte [jogador2 + JFRAME], 0
+        MOV     byte [SI+JESTADO], 3
+        MOV     byte [SI+JFRAME], 0
 lc_fim:
         CMP     BL, 0
         JNE     movp2
@@ -451,7 +510,131 @@ ad_invertido:
 ad_fim:
         POP     AX
         RET
+        
+        
+; =============================================================================
+; verifica_golpe
+; Entrada: SI = atacante, DI = defensor.
+; Verifica se SI esta no frame exato de impacto de um soco ou chute e se DI
+; esta dentro do alcance horizontal e vertical.
+; =============================================================================
+verifica_golpe:
+        PUSH AX
+        PUSH BX
 
+        MOV AL, [SI+JESTADO]
+        MOV AH, [SI+JFRAME]
+
+        CMP AL, 2
+        JE vg_testa_soco
+        CMP AL, 3
+        JE vg_testa_chute
+        JMP vg_fim
+
+; tratando soconelson
+vg_testa_soco:
+        CMP AH, 2
+        JNE vg_fim
+
+        ; verifica se o defensor nao esta abaixado
+        CMP byte [DI+JESTADO], 4
+        JE vg_fim
+
+        ; verifica se o defensor e o atacante estao na mesma posicao Y
+
+        MOV AX, [SI+JY]
+        SUB AX, [DI+JY]
+        JNS vg_soco_abs_y
+        NEG AX
+
+vg_soco_abs_y:
+        CMP AX, TOLERANCIA_Y
+        JG vg_fim
+
+        MOV BX, ALCANCE_SOCO
+        JMP vg_checa_dist_x
+
+vg_testa_chute:
+        CMP AH, 3
+        JNE vg_fim
+
+        CMP byte [DI+JPULO], 0
+        JNE vg_fim
+
+        MOV BX, ALCANCE_CHUTE
+
+vg_checa_dist_x:
+        MOV     AX, [SI+JX]
+        SUB     AX, [DI+JX]                 
+        JNS     vg_abs_x
+        NEG     AX                          
+vg_abs_x:
+        CMP     AX, BX                      
+        JG      vg_fim                      
+; --------------------------------------------------- golpe pegou
+        CMP     byte [DI+JENERGIA], 0       
+        JE      vg_fim
+        DEC     byte [DI+JENERGIA]
+        CALL    atualiza_barra
+vg_fim:
+        POP     BX
+        POP     AX
+        RET
+
+
+; =============================================================================
+; atualiza_barra
+; Entrada: DI = jogador que acabou de perder 1 ponto de energia.
+; Apaga (pinta de preto) apenas o bloco de 20 px correspondente ao novo valor
+; de [DI+JENERGIA], sem precisar redesenhar o resto da barra.
+; =============================================================================
+atualiza_barra:
+        PUSH    AX
+        PUSH    BX
+        PUSH    CX
+        PUSH    DX
+
+        
+        MOV     AL, [DI+JENERGIA]           
+        XOR     AH, AH
+        MOV     BL, LARG_BLOCO              
+        MUL     BL                          
+
+        
+        CMP     DI, jogador1
+        JNE     ab_jogador2
+
+        
+        ADD     AX, BARRA_P1_X
+        JMP     ab_apaga
+
+ab_jogador2:
+        
+        ADD     AX, BARRA_P2_X
+
+ab_apaga:
+        MOV     CX, AX                       
+        MOV     DX, AX
+        ADD     DX, LARG_BLOCO              
+        MOV     byte [cor], preto
+
+ab_loop:
+        PUSH    CX                          
+        MOV     AX, BARRA_Y_BAIXO
+        PUSH    AX                          
+        PUSH    CX                          
+        MOV     AX, BARRA_Y_TOPO
+        PUSH    AX                          
+        CALL    line
+        INC     CX
+        CMP     CX, DX
+        JL      ab_loop
+
+        POP     DX
+        POP     CX
+        POP     BX
+        POP     AX
+        RET
 ; =============================================================================
 ; houve_mudanca
 ; Saida: AL = 1 se algum jogador mudou de posicao/frame/direcao desde o
@@ -544,6 +727,14 @@ atualiza_animacao:
         CMP     [SI+JFRAME], AL
         JL      aa_fim              ; Se frame < limite, termina
 
+        ; se estiver abaixado trava no ultimo frame
+        CMP     byte [SI+JESTADO], 4
+        JNE     aa_ciclo
+        DEC     AL
+        MOV     [SI+JFRAME], AL
+        JMP     aa_fim
+
+aa_ciclo:
         ; Se chegou ao limite do ciclo:
         MOV     byte [SI+JFRAME], 0 ; Reseta o frame para 0
 
@@ -633,7 +824,271 @@ desenha_arena:
         MOV     AX, ARENA_TOPO
         PUSH    AX
         CALL    line
+        
+        CALL desenha_barras
 
+        POP     AX
+        RET
+        
+
+; =============================================================================
+; desenha_barras
+; Desenha as duas barras de energia completas (200 px cada) no topo da tela:
+;   Jogador 1 (esquerda): X = 20..219, cor = [jogador1+JCOR] (vermelho)
+;   Jogador 2 (direita) : X = 420..619, cor = [jogador2+JCOR] (azul_claro)
+; =============================================================================
+desenha_barras:
+        PUSH    AX
+        PUSH    CX
+
+        ; ---- Barra do Jogador 1 (Esquerda) ---------------------------------
+        MOV     AL, [jogador1+JCOR]
+        MOV     [cor], AL
+        MOV     CX, BARRA_P1_X              ; comeca em X = 20
+db_loop_p1:
+        PUSH    CX                          ; x1 = CX
+        MOV     AX, BARRA_Y_BAIXO
+        PUSH    AX                          ; y1 = 440
+        PUSH    CX                         
+        MOV     AX, BARRA_Y_TOPO
+        PUSH    AX                          ; y2 = 460
+        CALL    line
+        INC     CX
+        CMP     CX, BARRA_P1_X + 200        ; ate X = 219
+        JL      db_loop_p1
+
+        ; ---- Barra do Jogador 2 (Direita) ----------------------------------
+        MOV     AL, [jogador2+JCOR]
+        MOV     [cor], AL
+        MOV     CX, BARRA_P2_X              ; comeca em X = 420
+db_loop_p2:
+        PUSH    CX                          ; x1 = CX
+        MOV     AX, BARRA_Y_BAIXO
+        PUSH    AX                          ; y1 = 440
+        PUSH    CX                          ; x2 = CX
+        MOV     AX, BARRA_Y_TOPO
+        PUSH    AX                          ; y2 = 460
+        CALL    line
+        INC     CX
+        CMP     CX, BARRA_P2_X + 200        ; ate X = 619 
+        JL      db_loop_p2
+
+        CALL    desenha_rounds
+
+        POP     CX
+        POP     AX
+        RET
+
+; ---------------------------------------------- mrcadores de rounds na HUD
+desenha_rounds:
+        PUSH    AX
+        MOV     byte [cor], amarelo
+
+        MOV     AX, 235
+        PUSH    AX
+        MOV     AX, 450
+        PUSH    AX
+        MOV     AX, 6
+        PUSH    AX
+        CMP     byte [rounds_p1], 1
+        JGE     dr_p1_m1
+        CALL    circle
+        JMP     dr_p1_2
+dr_p1_m1:
+        CALL    full_circle
+
+dr_p1_2:
+        MOV     AX, 255
+        PUSH    AX
+        MOV     AX, 450
+        PUSH    AX
+        MOV     AX, 6
+        PUSH    AX
+        CMP     byte [rounds_p1], 2
+        JGE     dr_p1_m2
+        CALL    circle
+        JMP     dr_p2_1
+dr_p1_m2:
+        CALL    full_circle
+
+dr_p2_1:
+        MOV     AX, 405
+        PUSH    AX
+        MOV     AX, 450
+        PUSH    AX
+        MOV     AX, 6
+        PUSH    AX
+        CMP     byte [rounds_p2], 1
+        JGE     dr_p2_m1
+        CALL    circle
+        JMP     dr_p2_2
+dr_p2_m1:
+        CALL    full_circle
+
+dr_p2_2:
+        MOV     AX, 385
+        PUSH    AX
+        MOV     AX, 450
+        PUSH    AX
+        MOV     AX, 6
+        PUSH    AX
+        CMP     byte [rounds_p2], 2
+        JGE     dr_p2_m2
+        CALL    circle
+        JMP     dr_fim
+dr_p2_m2:
+        CALL    full_circle
+
+dr_fim:
+        POP     AX
+        RET
+
+; ---------------------------------------------- reseta jogo
+reseta_lutadores:
+        MOV     WORD [jogador1+JX], 150
+        MOV     WORD [jogador1+JY], Y_CHAO
+        MOV     WORD [jogador1+JXANT], 150
+        MOV     WORD [jogador1+JYANT], Y_CHAO
+        MOV     byte [jogador1+JFRAME], 0
+        MOV     byte [jogador1+JFRAMEANT], 0
+        MOV     byte [jogador1+JDIR], 0
+        MOV     byte [jogador1+JDIRANT], 0
+        MOV     byte [jogador1+JENERGIA], 10
+        MOV     byte [jogador1+JESTADO], 0
+        MOV     byte [jogador1+JESTADOANT], 0
+        MOV     WORD [jogador1+JVY], 0
+        MOV     byte [jogador1+JPULO], 0
+
+        MOV     WORD [jogador2+JX], 490
+        MOV     WORD [jogador2+JY], Y_CHAO
+        MOV     WORD [jogador2+JXANT], 490
+        MOV     WORD [jogador2+JYANT], Y_CHAO
+        MOV     byte [jogador2+JFRAME], 0
+        MOV     byte [jogador2+JFRAMEANT], 0
+        MOV     byte [jogador2+JDIR], 1
+        MOV     byte [jogador2+JDIRANT], 1
+        MOV     byte [jogador2+JENERGIA], 10
+        MOV     byte [jogador2+JESTADO], 0
+        MOV     byte [jogador2+JESTADOANT], 0
+        MOV     WORD [jogador2+JVY], 0
+        MOV     byte [jogador2+JPULO], 0
+        RET
+
+; ---------------------------------------------- verifica fim do round
+verifica_fim_round:
+        PUSH    AX
+        PUSH    BX
+
+        CMP     byte [jogador1+JENERGIA], 0
+        JE      vfr_p2
+        CMP     byte [jogador2+JENERGIA], 0
+        JE      vfr_p1
+
+        CMP     WORD [segundos], TEMPO_ROUND
+        JL      vfr_fim
+
+        MOV     AL, [jogador1+JENERGIA]
+        CMP     AL, [jogador2+JENERGIA]
+        JG      vfr_p1
+        JL      vfr_p2
+
+        ; desempate quando acaba o tempo é dado por dominio de ringue
+        MOV     AX, [jogador1+JX]
+        SUB     AX, 320
+        JNS     vfr_a1
+        NEG     AX
+vfr_a1:
+        MOV     BX, [jogador2+JX]
+        SUB     BX, 320
+        JNS     vfr_a2
+        NEG     BX
+vfr_a2:
+        CMP     AX, BX
+        JLE     vfr_p1
+
+vfr_p2:
+        INC     byte [rounds_p2]
+        MOV     byte [round_acabou], 1
+        CMP     byte [rounds_p2], 2
+        JL      vfr_fim
+        MOV     byte [vencedor], 2
+        JMP     vfr_fim
+
+vfr_p1:
+        INC     byte [rounds_p1]
+        MOV     byte [round_acabou], 1
+        CMP     byte [rounds_p1], 2
+        JL      vfr_fim
+        MOV     byte [vencedor], 1
+
+vfr_fim:
+        POP     BX
+        POP     AX
+        RET
+
+; ---------------------------------------------- exibe segundos 
+desenha_tempo:
+        PUSH    AX
+        PUSH    BX
+        PUSH    CX
+        PUSH    DX
+
+        MOV     AX, [segundos]
+        CMP     AX, [ultimo_seg]
+        JE      dt_fim
+        MOV     [ultimo_seg], AX
+
+        ; Limpa fundo dos 3 digitos (X=304-327, Y=448-463)
+        MOV     byte [cor], preto
+        MOV     CX, 304
+dt_limpa:
+        PUSH    CX
+        MOV     AX, 448
+        PUSH    AX
+        PUSH    CX
+        MOV     AX, 463
+        PUSH    AX
+        CALL    line
+        INC     CX
+        CMP     CX, 328
+        JL      dt_limpa
+
+        MOV     AX, TEMPO_ROUND
+        SUB     AX, [segundos]
+        JNS     dt_pos
+        XOR     AX, AX
+dt_pos:
+        MOV     BL, 100
+        DIV     BL                          ; AL = centena, AH = resto 0-99
+        MOV     BH, AH
+
+        MOV     byte [cor], branco_intenso
+        MOV     DH, 1
+        MOV     DL, 38
+        CALL    cursor
+        ADD     AL, '0'
+        CALL    caracter
+
+        MOV     AL, BH
+        XOR     AH, AH
+        MOV     BL, 10
+        DIV     BL
+
+        INC     DL
+        CALL    cursor
+        ADD     AL, '0'
+        CALL    caracter
+
+        INC     DL
+        CALL    cursor
+        MOV     AL, AH
+        ADD     AL, '0'
+        CALL    caracter
+
+dt_fim:
+        POP     DX
+        POP     CX
+        POP     BX
         POP     AX
         RET
 
@@ -793,6 +1248,13 @@ ARENA_DIR       EQU     629
 ARENA_BAIXO     EQU     70          ; chao
 ARENA_TOPO      EQU     420         ; acima disso fica o HUD
 
+; barra de energia
+BARRA_Y_BAIXO   EQU     440         
+BARRA_Y_TOPO    EQU     460         
+BARRA_P1_X      EQU     20          
+BARRA_P2_X      EQU     420         
+LARG_BLOCO      EQU     20          
+
 ; ------------------------------- Jogo -----------------------------------------
 VELOCIDADE      EQU     4           ; pixels por tique (~73 px/s)
 LIM_ESQ         EQU     40          ; menor X permitido para o centro do boneco
@@ -827,6 +1289,10 @@ JPULO           EQU     18          ; db  1 = no ar, 0 = no chao
                                     ; byte 19: reserva (alinhamento)
 JESTADOANT      EQU     19          ; 
 
+ALCANCE_SOCO    EQU     68          ; DIST_MIN (50) + mao (+52) -> margem soco
+ALCANCE_CHUTE   EQU     74          ; DIST_MIN (50) + pe (+58)  -> margem chute
+TOLERANCIA_Y    EQU     25          ; diferenca de altura para o soco pegar
+
 ; Y_CHAO = 156 deixa os pes (offset -84 do frame) logo acima do chao (Y = 70)
 jogador1:
         DW      150, Y_CHAO         ; JX, JY
@@ -859,7 +1325,14 @@ jogador2:
 ; =============================================================================
 
 ; Limites de frames para cada estado
-limite_frames 	db 	1, 10, 10, 10 ; Idle, andar, soco, chute
+limite_frames 	db 	1, 10, 10, 10, 3 ; Idle, andar, soco, chute, abaixar
+
+TEMPO_ROUND     EQU     180
+ultimo_seg      DW      0FFFFh
+rounds_p1       DB      0
+rounds_p2       DB      0
+round_acabou    DB      0
+vencedor        DB      0
 
 segment stack stack
         resb    2048
