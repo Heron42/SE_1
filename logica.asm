@@ -29,7 +29,36 @@
 ;   motivo_fim, ultimo_golpe, sair_flag
 ; =============================================================================
 
-%include "const.inc"
+; ------------------------------- Constantes (EQU) -----------------------------
+; Constantes usadas por este modulo. Um EQU nao ocupa memoria: o montador
+; troca o nome pelo valor. As que aparecem em mais de um modulo (estrutura do
+; jogador, cores, scan codes, regras) precisam ter o MESMO valor em todos.
+
+; ------------------------------- Scan codes (make) ----------------------------
+TEC_ESC         EQU     01h
+TEC_Q           EQU     10h
+TEC_Y           EQU     15h
+TEC_P           EQU     19h
+TEC_N           EQU     31h
+
+; ------------------------------- Cores (paleta padrao VGA) --------------------
+branco          EQU     7           ; 0 1 1 1
+amarelo         EQU     14          ; 1 1 1 0
+
+; ------------------------------- Arena e HUD ----------------------------------
+LIN_MSG         EQU     6           ; mensagens no centro da arena (acima do pulo)
+LIN_CONFIRMA    EQU     27          ; confirmacao de saida (abaixo do chao)
+
+; ------------------------------- Regras do jogo -------------------------------
+ROUNDS_VITORIA  EQU     2           ; melhor de tres
+TEMPO_ROUND     EQU     180         ; 3 minutos, em segundos
+MOTIVO_KO       EQU     1           ; round terminou por falta de energia
+MOTIVO_TEMPO    EQU     2           ; round terminou por tempo esgotado
+
+; ------------------------------- Estrutura de um jogador (20 bytes) -----------
+; Acesse sempre como [SI+campo] ou [jogadorN+campo].
+JX              EQU     0           ; dw  posicao X atual (centro do tronco)
+JENERGIA        EQU     13          ; db  energia (comeca em ENERGIA_INICIAL)
 
 global  inicia_partida
 global  verifica_fim_round
@@ -230,7 +259,7 @@ pa_retoma:
 
 ; =============================================================================
 ; confirma_saida
-; Mostra "Deseja realmente sair? (Y/N)" na linha LIN_CONFIRMA e espera Y ou N.
+; Mostra "Sair? (Y/N)" na linha LIN_CONFIRMA e espera Y ou N.
 ; O cronometro fica congelado enquanto a pergunta estiver na tela.
 ; Saida: AL = 1 se o usuario confirmou (Y), AL = 0 se desistiu (N).
 ; A mensagem e apagada antes de retornar (volta ao estado anterior).

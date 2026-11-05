@@ -20,10 +20,71 @@
 ;   reseta_lutadores, le_controles, fisica_jogador, atualiza_direcao,
 ;   atualiza_animacao, houve_mudanca, pinta_jogador, apaga_jogador
 ; Dados publicos:
-;   jogador1, jogador2 (estrutura de TAM_JOGADOR bytes, ver const.inc)
+;   jogador1, jogador2 (estrutura de 20 bytes; campos JX ... JPULO abaixo)
 ; =============================================================================
 
-%include "const.inc"
+; ------------------------------- Constantes (EQU) -----------------------------
+; Constantes usadas por este modulo. Um EQU nao ocupa memoria: o montador
+; troca o nome pelo valor. As que aparecem em mais de um modulo (estrutura do
+; jogador, cores, scan codes, regras) precisam ter o MESMO valor em todos.
+
+; ------------------------------- Scan codes (make) ----------------------------
+TEC_W           EQU     11h
+TEC_R           EQU     13h
+TEC_T           EQU     14h
+TEC_A           EQU     1Eh
+TEC_S           EQU     1Fh
+TEC_D           EQU     20h
+TEC_N           EQU     31h
+TEC_M           EQU     32h
+TEC_CIMA        EQU     48h         ; seta para cima   (chega apos o prefixo E0h)
+TEC_ESQ         EQU     4Bh         ; seta esquerda    (apos E0h)
+TEC_DIR         EQU     4Dh         ; seta direita     (apos E0h)
+TEC_BAIXO       EQU     50h         ; seta para baixo  (apos E0h)
+
+; ------------------------------- Cores (paleta padrao VGA) --------------------
+                                    ; I R G B
+preto           EQU     0           ; 0 0 0 0
+vermelho        EQU     4           ; 0 1 0 0
+azul_claro      EQU     9           ; 1 0 0 1
+
+; ------------------------------- Regras do jogo -------------------------------
+ENERGIA_INICIAL EQU     10          ; golpes validos para perder o round
+
+; ------------------------------- Fisica dos lutadores -------------------------
+VELOCIDADE      EQU     4           ; pixels por tique (~73 px/s)
+LIM_ESQ         EQU     40          ; menor X permitido para o centro do boneco
+LIM_DIR         EQU     598         ; maior X permitido (braco vai ate +27)
+DIST_MIN        EQU     50          ; distancia minima entre os dois lutadores
+Y_CHAO          EQU     156         ; Y dos ombros com o lutador no chao
+VEL_PULO        EQU     22          ; velocidade vertical inicial do pulo (px/tique)
+GRAVIDADE       EQU     3           ; reducao de VY a cada tique
+X_INICIAL_J1    EQU     150
+X_INICIAL_J2    EQU     490
+
+; ------------------------------- Estados de animacao --------------------------
+EST_IDLE        EQU     0
+EST_ANDA        EQU     1
+EST_SOCO        EQU     2
+EST_CHUTE       EQU     3
+EST_ABAIXA      EQU     4
+
+; ------------------------------- Estrutura de um jogador (20 bytes) -----------
+; Acesse sempre como [SI+campo] ou [jogadorN+campo].
+JX              EQU     0           ; dw  posicao X atual (centro do tronco)
+JY              EQU     2           ; dw  posicao Y atual (ombros)
+JXANT           EQU     4           ; dw  X onde foi desenhado por ultimo
+JYANT           EQU     6           ; dw  Y onde foi desenhado por ultimo
+JFRAME          EQU     8           ; db  frame atual da animacao
+JFRAMEANT       EQU     9           ; db  frame desenhado por ultimo
+JDIR            EQU     10          ; db  0 = olha p/ direita, 1 = p/ esquerda
+JDIRANT         EQU     11          ; db  direcao desenhada por ultimo
+JCOR            EQU     12          ; db  cor do lutador (escolhida na selecao)
+JENERGIA        EQU     13          ; db  energia (comeca em ENERGIA_INICIAL)
+JESTADO         EQU     14          ; db  estado de animacao (EST_*)
+JESTADOANT      EQU     15          ; db  estado desenhado por ultimo
+JVY             EQU     16          ; dw  velocidade vertical (positiva = sobe)
+JPULO           EQU     18          ; db  1 = no ar, 0 = no chao
 
 global  jogador1
 global  jogador2
@@ -269,14 +330,11 @@ ip_fim:
 ; fisica_jogador
 ; Entrada: SI = jogador, DI = adversario. Executada uma vez por tique.
 ;   Y  <- Y + VY
-;   VY <- VY - 
-
-
-
+;   VY <- VY - GRAVIDADE
 ; Ao tocar o chao (Y <= Y_CHAO): fixa Y no chao, zera VY, encerra o pulo
 ; e resolve uma eventual sobreposicao com o adversario.
-; Com VEL_PULO = 22 e GRAVIDADE = 2 o pulo sobe 132 px e dura ~1,3 s
-; (os pes passam cerca de 30 px acima da cabeca do adversario).
+; Com VEL_PULO = 22 e GRAVIDADE = 3 o pulo sobe 92 px (22+19+...+1) e dura
+; 16 tiques (~0,9 s); no topo, os pes ficam na altura da cabeca do adversario.
 ; =============================================================================
 fisica_jogador:
         PUSH    AX
@@ -513,7 +571,7 @@ tecla_chute     DB      0
 limite_frames   DB      1, 10, 10, 10, 3
 
 ; ----------------------------------------------------------------------------
-; Lutadores (TAM_JOGADOR = 20 bytes cada; offsets em const.inc).
+; Lutadores (20 bytes cada; deslocamentos dos campos no inicio do modulo).
 ; A cor e sobrescrita pela tela de selecao.
 ; ----------------------------------------------------------------------------
 jogador1:

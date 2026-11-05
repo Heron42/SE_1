@@ -22,7 +22,13 @@
 ;   tique_jogo (DW), segundos (DW), relogio_ativo (DB)
 ; =============================================================================
 
-%include "const.inc"
+; ------------------------------- Constantes (EQU) -----------------------------
+; Constantes usadas por este modulo. Um EQU nao ocupa memoria: o montador
+; troca o nome pelo valor. As que aparecem em mais de um modulo (estrutura do
+; jogador, cores, scan codes, regras) precisam ter o MESMO valor em todos.
+
+; ------------------------------- Hardware -------------------------------------
+INT_CLK         EQU     08h         ; interrupcao de hardware do 8253 (IRQ0)
 
 global  instala_relogio
 global  restaura_relogio

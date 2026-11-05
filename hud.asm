@@ -17,7 +17,35 @@
 ;   apaga_linha     : apaga uma linha de texto dentro da arena
 ; =============================================================================
 
-%include "const.inc"
+; ------------------------------- Constantes (EQU) -----------------------------
+; Constantes usadas por este modulo. Um EQU nao ocupa memoria: o montador
+; troca o nome pelo valor. As que aparecem em mais de um modulo (estrutura do
+; jogador, cores, scan codes, regras) precisam ter o MESMO valor em todos.
+
+; ------------------------------- Cores (paleta padrao VGA) --------------------
+                                    ; I R G B
+preto           EQU     0           ; 0 0 0 0
+amarelo         EQU     14          ; 1 1 1 0
+branco_intenso  EQU     15          ; 1 1 1 1
+
+; ------------------------------- Arena e HUD ----------------------------------
+; Coordenadas no sistema de plot_xy: Y = 0 embaixo, Y = 479 em cima.
+ARENA_ESQ       EQU     10
+ARENA_DIR       EQU     629
+ARENA_BAIXO     EQU     70          ; chao
+ARENA_TOPO      EQU     420         ; acima disso fica o HUD
+BARRA_Y_BAIXO   EQU     440         ; barras de energia
+BARRA_Y_TOPO    EQU     460
+BARRA_P1_X      EQU     20          ; J1: X = 20..219
+BARRA_P2_X      EQU     420         ; J2: X = 420..619
+LARG_BLOCO      EQU     20          ; 1 ponto de energia = 20 px de barra
+
+; ------------------------------- Regras do jogo -------------------------------
+TEMPO_ROUND     EQU     180         ; 3 minutos, em segundos
+
+; ------------------------------- Estrutura de um jogador (20 bytes) -----------
+JCOR            EQU     12          ; db  cor do lutador (escolhida na selecao)
+JENERGIA        EQU     13          ; db  energia (comeca em ENERGIA_INICIAL)
 
 global  desenha_cenario
 global  atualiza_barra

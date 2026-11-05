@@ -2,7 +2,7 @@
 # Makefile  -  Jogo de Luta em Assembly 8086
 # -----------------------------------------------------------------------------
 # Monta cada modulo com o NASM (formato OMF/.obj), liga todos com o FREELINK
-# e gera TRABALHO.EXE. Cada .obj depende do seu .asm e de const.inc, de modo
+# e gera TRABALHO.EXE. Cada .obj depende do seu .asm, de modo
 # que so os modulos alterados sao remontados.
 #
 # Uso:
@@ -32,28 +32,28 @@ $(EXE): $(OBJS)
 	$(LINK) $(LOBJS),$(EXE);
 
 # ------------------------------- Montagem dos modulos ------------------------
-trabalho.obj: trabalho.asm const.inc
+trabalho.obj: trabalho.asm
 	$(ASM) $(AFLAGS) -o trabalho.obj -l trabalho.lst trabalho.asm
 
-teclado.obj: teclado.asm const.inc
+teclado.obj: teclado.asm
 	$(ASM) $(AFLAGS) -o teclado.obj -l teclado.lst teclado.asm
 
-tempo.obj: tempo.asm const.inc
+tempo.obj: tempo.asm
 	$(ASM) $(AFLAGS) -o tempo.obj -l tempo.lst tempo.asm
 
-jogador.obj: jogador.asm const.inc
+jogador.obj: jogador.asm
 	$(ASM) $(AFLAGS) -o jogador.obj -l jogador.lst jogador.asm
 
-colisao.obj: colisao.asm const.inc
+colisao.obj: colisao.asm
 	$(ASM) $(AFLAGS) -o colisao.obj -l colisao.lst colisao.asm
 
-logica.obj: logica.asm const.inc
+logica.obj: logica.asm
 	$(ASM) $(AFLAGS) -o logica.obj -l logica.lst logica.asm
 
-hud.obj: hud.asm const.inc
+hud.obj: hud.asm
 	$(ASM) $(AFLAGS) -o hud.obj -l hud.lst hud.asm
 
-telas.obj: telas.asm const.inc
+telas.obj: telas.asm
 	$(ASM) $(AFLAGS) -o telas.obj -l telas.lst telas.asm
 
 graficos.obj: graficos.asm

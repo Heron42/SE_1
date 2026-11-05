@@ -12,7 +12,49 @@
 ; Em todas as telas, Q/ESC pede confirmacao de saida (Y/N).
 ; =============================================================================
 
-%include "const.inc"
+; ------------------------------- Constantes (EQU) -----------------------------
+; Constantes usadas por este modulo. Um EQU nao ocupa memoria: o montador
+; troca o nome pelo valor. As que aparecem em mais de um modulo (estrutura do
+; jogador, cores, scan codes, regras) precisam ter o MESMO valor em todos.
+
+; ------------------------------- Scan codes (make) ----------------------------
+TEC_ESC         EQU     01h
+TEC_Q           EQU     10h
+TEC_W           EQU     11h
+TEC_Y           EQU     15h
+TEC_ENTER       EQU     1Ch
+TEC_S           EQU     1Fh
+TEC_N           EQU     31h
+TEC_CIMA        EQU     48h         ; seta para cima   (chega apos o prefixo E0h)
+TEC_BAIXO       EQU     50h         ; seta para baixo  (apos E0h)
+
+; ------------------------------- Cores (paleta padrao VGA) --------------------
+vermelho        EQU     4           ; 0 1 0 0
+marrom          EQU     6           ; 0 1 1 0
+branco          EQU     7           ; 0 1 1 1
+cinza           EQU     8           ; 1 0 0 0
+azul_claro      EQU     9           ; 1 0 0 1
+verde_claro     EQU     10          ; 1 0 1 0
+cyan_claro      EQU     11          ; 1 0 1 1
+magenta_claro   EQU     13          ; 1 1 0 1
+amarelo         EQU     14          ; 1 1 1 0
+branco_intenso  EQU     15          ; 1 1 1 1
+
+; ------------------------------- Arena e HUD ----------------------------------
+LIN_MSG         EQU     6           ; mensagens no centro da arena (acima do pulo)
+
+; ------------------------------- Regras do jogo -------------------------------
+MOTIVO_TEMPO    EQU     2           ; round terminou por tempo esgotado
+
+; ------------------------------- Colisao --------------------------------------
+FRAME_IMPACTO_SOCO  EQU 2           ; frame da animacao em que o soco "pega"
+
+; ------------------------------- Estados de animacao --------------------------
+EST_IDLE        EQU     0
+EST_SOCO        EQU     2
+
+; ------------------------------- Estrutura de um jogador (20 bytes) -----------
+JCOR            EQU     12          ; db  cor do lutador (escolhida na selecao)
 
 global  tela_selecao
 global  anuncia_round

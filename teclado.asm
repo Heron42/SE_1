@@ -18,7 +18,17 @@
 ;   limpa_eventos    : descarta tudo o que estiver na fila
 ; =============================================================================
 
-%include "const.inc"
+; ------------------------------- Constantes (EQU) -----------------------------
+; Constantes usadas por este modulo. Um EQU nao ocupa memoria: o montador
+; troca o nome pelo valor. As que aparecem em mais de um modulo (estrutura do
+; jogador, cores, scan codes, regras) precisam ter o MESMO valor em todos.
+
+; ------------------------------- Hardware -------------------------------------
+KB_DATA         EQU     60h         ; porta de dados do teclado (8042)
+KB_CTL          EQU     61h         ; porta de controle do teclado (8255 PB)
+PICTRL          EQU     20h         ; porta de comando do PIC 8259
+EOI             EQU     20h         ; comando End Of Interrupt
+INT_TEC         EQU     09h         ; interrupcao de hardware do teclado (IRQ1)
 
 global  instala_teclado
 global  restaura_teclado

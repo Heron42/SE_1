@@ -14,7 +14,31 @@
 ; Rotina publica: verifica_golpe
 ; =============================================================================
 
-%include "const.inc"
+; ------------------------------- Constantes (EQU) -----------------------------
+; Constantes usadas por este modulo. Um EQU nao ocupa memoria: o montador
+; troca o nome pelo valor. As que aparecem em mais de um modulo (estrutura do
+; jogador, cores, scan codes, regras) precisam ter o MESMO valor em todos.
+
+; ------------------------------- Colisao --------------------------------------
+ALCANCE_SOCO    EQU     68          ; distancia maxima em X para o soco acertar
+ALCANCE_CHUTE   EQU     74          ; distancia maxima em X para o chute acertar
+TOLERANCIA_Y    EQU     25          ; diferenca de altura maxima para o soco
+FRAME_IMPACTO_SOCO  EQU 2           ; frame da animacao em que o soco "pega"
+FRAME_IMPACTO_CHUTE EQU 3           ; frame da animacao em que o chute "pega"
+
+; ------------------------------- Estados de animacao --------------------------
+EST_SOCO        EQU     2
+EST_CHUTE       EQU     3
+EST_ABAIXA      EQU     4
+
+; ------------------------------- Estrutura de um jogador (20 bytes) -----------
+; Acesse sempre como [SI+campo] ou [jogadorN+campo].
+JX              EQU     0           ; dw  posicao X atual (centro do tronco)
+JY              EQU     2           ; dw  posicao Y atual (ombros)
+JFRAME          EQU     8           ; db  frame atual da animacao
+JENERGIA        EQU     13          ; db  energia (comeca em ENERGIA_INICIAL)
+JESTADO         EQU     14          ; db  estado de animacao (EST_*)
+JPULO           EQU     18          ; db  1 = no ar, 0 = no chao
 
 global  verifica_golpe
 

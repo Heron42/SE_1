@@ -20,12 +20,11 @@
 ;   hud.asm      : arena, barras de energia, rounds, tempo e mensagens
 ;   telas.asm    : selecao de lutadores, avisos de round e Game Over
 ;   graficos.asm : primitivas graficas (modo 12h) e desenho do boneco
-;   const.inc    : constantes compartilhadas
+;
+; Cada modulo declara, no inicio, as constantes (EQU) que usa.
 ;
 ; Montagem: MAKE.BAT (padrao da disciplina) ou Makefile. Ver README.md.
 ; =============================================================================
-
-%include "const.inc"
 
 ; ------------------------------- Simbolos externos ----------------------------
 extern  instala_teclado             ; teclado.asm

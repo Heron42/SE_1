@@ -54,7 +54,7 @@ Os arquivos gerados na montagem (`.obj` e `.lst`) não são versionados (ver `.g
 
 3. **Comandos a qualquer momento:**
    * **P** pausa e retoma; a tela mostra "PAUSED" e o tempo de pausa não conta no round;
-   * **Q** (ou ESC) pergunta "Deseja realmente sair? (Y/N)"; Y encerra e N volta exatamente ao ponto anterior.
+   * **Q** (ou ESC) pergunta "Sair? (Y/N)"; Y encerra e N volta exatamente ao ponto anterior.
 4. **Game Over.** A tela mostra o vencedor e o placar. **Y** começa uma nova partida e **N** encerra o programa.
 
 ## Regras
@@ -88,12 +88,13 @@ Aplicado em ordem (rotina `verifica_fim_round`, em `logica.asm`):
 | `hud.asm` | Arena, barras de energia, marcadores de rounds, cronômetro e mensagens |
 | `telas.asm` | Seleção de lutadores, avisos de round e tela de Game Over |
 | `graficos.asm` | Primitivas gráficas do modo 12h (ponto, linha, círculo, texto) e desenho do boneco |
-| `const.inc` | Constantes compartilhadas (portas, scan codes, cores, regras, estrutura do jogador) |
 | `MAKE.BAT` / `NASM.BAT` | Montagem dos módulos e ligação (padrão da disciplina) |
 | `MONTA.BAT` | Alternativa equivalente ao `MAKE.BAT`, com os comandos do `nasm16` escritos por extenso |
 | `Makefile` | Mesma montagem, para uso com um programa `make` |
 | `NASM16.EXE` / `FREELINK.EXE` | Montador e ligador usados na montagem |
 | `.gitignore` | Impede que os arquivos gerados (`.obj`, `.lst`) sejam versionados |
+
+Não há arquivo de constantes compartilhado: cada módulo declara no início, com `EQU`, as constantes que usa (portas, scan codes, cores, regras e os deslocamentos dos campos do lutador). Uma constante que aparece em mais de um módulo, como `JENERGIA` ou `Y_CHAO`, precisa ter o mesmo valor em todos eles; ao mudar uma regra, procure o nome em todos os `.asm`.
 
 ## Detalhes técnicos
 

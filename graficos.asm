@@ -967,7 +967,7 @@ v_anda:
 
 ; =============================================================================
 ; Animacao de soco (estado 2) - 10 frames
-; O dano e verificado no frame 2 (FRAME_IMPACTO_SOCO em const.inc), primeiro
+; O dano e verificado no frame 2 (FRAME_IMPACTO_SOCO em colisao.asm), primeiro
 ; frame do braco totalmente estendido (mao em X = +52).
 ; =============================================================================
 v_soco:
@@ -1026,7 +1026,7 @@ v_soco:
 ; =============================================================================
 ; Animacao de chute (estado 3): rasteira baixa - 10 frames
 ; O ponto mais baixo fica em Y = 74, para nao apagar o chao da arena (Y = 70).
-; O dano e verificado no frame 3 (FRAME_IMPACTO_CHUTE em const.inc), primeiro
+; O dano e verificado no frame 3 (FRAME_IMPACTO_CHUTE em colisao.asm), primeiro
 ; frame da perna totalmente estendida (pe em X = +58). Por ser rasteira, a
 ; defesa contra o chute e pular.
 ; =============================================================================
