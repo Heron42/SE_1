@@ -1,0 +1,371 @@
+     1                                  ; =============================================================================
+     2                                  ; trabalho.asm  -  Jogo de Luta em Assembly 8086 (modulo principal)
+     3                                  ; -----------------------------------------------------------------------------
+     4                                  ; Responsabilidades deste modulo:
+     5                                  ;   - inicializacao (segmentos, pilha, ISRs, modo de video)
+     6                                  ;   - maquina de estados do jogo:
+     7                                  ;       SELECAO -> [ROUND -> LUTA -> FIM DO ROUND]... -> GAME OVER
+     8                                  ;                                                          |  Y: nova partida
+     9                                  ;                                                          |  N: encerra
+    10                                  ;   - laco principal da luta, sincronizado com a INT 8h
+    11                                  ;   - restauracao do sistema na saida (vetores 8h/9h e modo de video)
+    12                                  ;
+    13                                  ; Organizacao dos modulos:
+    14                                  ;   trabalho.asm : inicializacao, fluxo do jogo e laco principal (este)
+    15                                  ;   teclado.asm  : ISR da INT 9h, tabela de estado e fila de eventos
+    16                                  ;   tempo.asm    : ISR da INT 8h, tique do jogo e cronometro do round
+    17                                  ;   jogador.asm  : controles, movimento, pulo, animacao e desenho dos lutadores
+    18                                  ;   colisao.asm  : deteccao de golpes validos
+    19                                  ;   logica.asm   : fim de round/partida, desempate, pausa (P) e saida (Q)
+    20                                  ;   hud.asm      : arena, barras de energia, rounds, tempo e mensagens
+    21                                  ;   telas.asm    : selecao de lutadores, avisos de round e Game Over
+    22                                  ;   graficos.asm : primitivas graficas (modo 12h) e desenho do boneco
+    23                                  ;   const.inc    : constantes compartilhadas
+    24                                  ;
+    25                                  ; Montagem: MAKE.BAT (padrao da disciplina) ou Makefile. Ver README.md.
+    26                                  ; =============================================================================
+    27                                  
+    28                                  %include "const.inc"
+    29                              <1> ; =============================================================================
+    30                              <1> ; const.inc  -  Constantes compartilhadas por todos os modulos do jogo
+    31                              <1> ; -----------------------------------------------------------------------------
+    32                              <1> ; Contem apenas EQUs (nao gera codigo nem dados). Incluido com
+    33                              <1> ;   %include "const.inc"
+    34                              <1> ; em cada modulo .asm. Qualquer alteracao aqui exige remontar todos os
+    35                              <1> ; modulos (o Makefile ja declara essa dependencia).
+    36                              <1> ; =============================================================================
+    37                              <1> 
+    38                              <1> ; ------------------------------- Hardware -------------------------------------
+    39                              <1> KB_DATA         EQU     60h         ; porta de dados do teclado (8042)
+    40                              <1> KB_CTL          EQU     61h         ; porta de controle do teclado (8255 PB)
+    41                              <1> PICTRL          EQU     20h         ; porta de comando do PIC 8259
+    42                              <1> EOI             EQU     20h         ; comando End Of Interrupt
+    43                              <1> INT_TEC         EQU     09h         ; interrupcao de hardware do teclado (IRQ1)
+    44                              <1> INT_CLK         EQU     08h         ; interrupcao de hardware do 8253 (IRQ0)
+    45                              <1> 
+    46                              <1> ; ------------------------------- Scan codes (make) ----------------------------
+    47                              <1> TEC_ESC         EQU     01h
+    48                              <1> TEC_Q           EQU     10h
+    49                              <1> TEC_W           EQU     11h
+    50                              <1> TEC_R           EQU     13h
+    51                              <1> TEC_T           EQU     14h
+    52                              <1> TEC_Y           EQU     15h
+    53                              <1> TEC_P           EQU     19h
+    54                              <1> TEC_ENTER       EQU     1Ch
+    55                              <1> TEC_A           EQU     1Eh
+    56                              <1> TEC_S           EQU     1Fh
+    57                              <1> TEC_D           EQU     20h
+    58                              <1> TEC_N           EQU     31h
+    59                              <1> TEC_M           EQU     32h
+    60                              <1> TEC_CIMA        EQU     48h         ; seta para cima   (chega apos o prefixo E0h)
+    61                              <1> TEC_ESQ         EQU     4Bh         ; seta esquerda    (apos E0h)
+    62                              <1> TEC_DIR         EQU     4Dh         ; seta direita     (apos E0h)
+    63                              <1> TEC_BAIXO       EQU     50h         ; seta para baixo  (apos E0h)
+    64                              <1> 
+    65                              <1> ; ------------------------------- Cores (paleta padrao VGA) --------------------
+    66                              <1>                                     ; I R G B
+    67                              <1> preto           EQU     0           ; 0 0 0 0
+    68                              <1> azul            EQU     1           ; 0 0 0 1
+    69                              <1> verde           EQU     2           ; 0 0 1 0
+    70                              <1> cyan            EQU     3           ; 0 0 1 1
+    71                              <1> vermelho        EQU     4           ; 0 1 0 0
+    72                              <1> magenta         EQU     5           ; 0 1 0 1
+    73                              <1> marrom          EQU     6           ; 0 1 1 0
+    74                              <1> branco          EQU     7           ; 0 1 1 1
+    75                              <1> cinza           EQU     8           ; 1 0 0 0
+    76                              <1> azul_claro      EQU     9           ; 1 0 0 1
+    77                              <1> verde_claro     EQU     10          ; 1 0 1 0
+    78                              <1> cyan_claro      EQU     11          ; 1 0 1 1
+    79                              <1> rosa            EQU     12          ; 1 1 0 0
+    80                              <1> magenta_claro   EQU     13          ; 1 1 0 1
+    81                              <1> amarelo         EQU     14          ; 1 1 1 0
+    82                              <1> branco_intenso  EQU     15          ; 1 1 1 1
+    83                              <1> 
+    84                              <1> ; ------------------------------- Arena e HUD ----------------------------------
+    85                              <1> ; Coordenadas no sistema de plot_xy: Y = 0 embaixo, Y = 479 em cima.
+    86                              <1> ARENA_ESQ       EQU     10
+    87                              <1> ARENA_DIR       EQU     629
+    88                              <1> ARENA_BAIXO     EQU     70          ; chao
+    89                              <1> ARENA_TOPO      EQU     420         ; acima disso fica o HUD
+    90                              <1> 
+    91                              <1> BARRA_Y_BAIXO   EQU     440         ; barras de energia
+    92                              <1> BARRA_Y_TOPO    EQU     460
+    93                              <1> BARRA_P1_X      EQU     20          ; J1: X = 20..219
+    94                              <1> BARRA_P2_X      EQU     420         ; J2: X = 420..619
+    95                              <1> LARG_BLOCO      EQU     20          ; 1 ponto de energia = 20 px de barra
+    96                              <1> 
+    97                              <1> ; Linhas de texto (modo 12h: 30 linhas x 80 colunas, celula 8x16)
+    98                              <1> LIN_TEMPO       EQU     1           ; cronometro (centro do HUD)
+    99                              <1> COL_TEMPO       EQU     38
+   100                              <1> LIN_MSG         EQU     6           ; mensagens no centro da arena (acima do pulo)
+   101                              <1> LIN_CONFIRMA    EQU     27          ; confirmacao de saida (abaixo do chao)
+   102                              <1> 
+   103                              <1> ; ------------------------------- Regras do jogo -------------------------------
+   104                              <1> ENERGIA_INICIAL EQU     10          ; golpes validos para perder o round
+   105                              <1> ROUNDS_VITORIA  EQU     2           ; melhor de tres
+   106                              <1> TEMPO_ROUND     EQU     180         ; 3 minutos, em segundos
+   107                              <1> MOTIVO_KO       EQU     1           ; round terminou por falta de energia
+   108                              <1> MOTIVO_TEMPO    EQU     2           ; round terminou por tempo esgotado
+   109                              <1> 
+   110                              <1> ; ------------------------------- Fisica dos lutadores -------------------------
+   111                              <1> VELOCIDADE      EQU     4           ; pixels por tique (~73 px/s)
+   112                              <1> LIM_ESQ         EQU     40          ; menor X permitido para o centro do boneco
+   113                              <1> LIM_DIR         EQU     598         ; maior X permitido (braco vai ate +27)
+   114                              <1> DIST_MIN        EQU     50          ; distancia minima entre os dois lutadores
+   115                              <1> Y_CHAO          EQU     156         ; Y dos ombros com o lutador no chao
+   116                              <1> VEL_PULO        EQU     22          ; velocidade vertical inicial do pulo (px/tique)
+   117                              <1> GRAVIDADE       EQU     2           ; reducao de VY a cada tique
+   118                              <1> X_INICIAL_J1    EQU     150
+   119                              <1> X_INICIAL_J2    EQU     490
+   120                              <1> 
+   121                              <1> ; ------------------------------- Colisao --------------------------------------
+   122                              <1> ALCANCE_SOCO    EQU     68          ; distancia maxima em X para o soco acertar
+   123                              <1> ALCANCE_CHUTE   EQU     74          ; distancia maxima em X para o chute acertar
+   124                              <1> TOLERANCIA_Y    EQU     25          ; diferenca de altura maxima para o soco
+   125                              <1> FRAME_IMPACTO_SOCO  EQU 2           ; frame da animacao em que o soco "pega"
+   126                              <1> FRAME_IMPACTO_CHUTE EQU 3           ; frame da animacao em que o chute "pega"
+   127                              <1> 
+   128                              <1> ; ------------------------------- Estados de animacao --------------------------
+   129                              <1> EST_IDLE        EQU     0
+   130                              <1> EST_ANDA        EQU     1
+   131                              <1> EST_SOCO        EQU     2
+   132                              <1> EST_CHUTE       EQU     3
+   133                              <1> EST_ABAIXA      EQU     4
+   134                              <1> 
+   135                              <1> ; ------------------------------- Estrutura de um jogador (20 bytes) -----------
+   136                              <1> ; Acesse sempre como [SI+campo] ou [jogadorN+campo].
+   137                              <1> JX              EQU     0           ; dw  posicao X atual (centro do tronco)
+   138                              <1> JY              EQU     2           ; dw  posicao Y atual (ombros)
+   139                              <1> JXANT           EQU     4           ; dw  X onde foi desenhado por ultimo
+   140                              <1> JYANT           EQU     6           ; dw  Y onde foi desenhado por ultimo
+   141                              <1> JFRAME          EQU     8           ; db  frame atual da animacao
+   142                              <1> JFRAMEANT       EQU     9           ; db  frame desenhado por ultimo
+   143                              <1> JDIR            EQU     10          ; db  0 = olha p/ direita, 1 = p/ esquerda
+   144                              <1> JDIRANT         EQU     11          ; db  direcao desenhada por ultimo
+   145                              <1> JCOR            EQU     12          ; db  cor do lutador (escolhida na selecao)
+   146                              <1> JENERGIA        EQU     13          ; db  energia (comeca em ENERGIA_INICIAL)
+   147                              <1> JESTADO         EQU     14          ; db  estado de animacao (EST_*)
+   148                              <1> JESTADOANT      EQU     15          ; db  estado desenhado por ultimo
+   149                              <1> JVY             EQU     16          ; dw  velocidade vertical (positiva = sobe)
+   150                              <1> JPULO           EQU     18          ; db  1 = no ar, 0 = no chao
+   151                              <1>                                     ; byte 19: reserva (alinhamento)
+   152                              <1> TAM_JOGADOR     EQU     20
+   153                                  
+   154                                  ; ------------------------------- Simbolos externos ----------------------------
+   155                                  extern  instala_teclado             ; teclado.asm
+   156                                  extern  restaura_teclado
+   157                                  extern  limpa_eventos
+   158                                  extern  instala_relogio             ; tempo.asm
+   159                                  extern  restaura_relogio
+   160                                  extern  zera_cronometro
+   161                                  extern  tique_jogo
+   162                                  extern  relogio_ativo
+   163                                  extern  jogador1                    ; jogador.asm
+   164                                  extern  jogador2
+   165                                  extern  reseta_lutadores
+   166                                  extern  le_controles
+   167                                  extern  fisica_jogador
+   168                                  extern  atualiza_direcao
+   169                                  extern  atualiza_animacao
+   170                                  extern  houve_mudanca
+   171                                  extern  pinta_jogador
+   172                                  extern  apaga_jogador
+   173                                  extern  verifica_golpe              ; colisao.asm
+   174                                  extern  inicia_partida              ; logica.asm
+   175                                  extern  verifica_fim_round
+   176                                  extern  trata_eventos
+   177                                  extern  round_acabou
+   178                                  extern  vencedor
+   179                                  extern  ultimo_golpe
+   180                                  extern  sair_flag
+   181                                  extern  desenha_cenario             ; hud.asm
+   182                                  extern  desenha_tempo
+   183                                  extern  desenha_rounds
+   184                                  extern  tela_selecao                ; telas.asm
+   185                                  extern  anuncia_round
+   186                                  extern  anuncia_fim_round
+   187                                  extern  tela_game_over
+   188                                  
+   189                                  ; =============================================================================
+   190                                  segment code public class=CODE
+   191                                  ..start:
+   192                                  ; ---------------------------------------------- Registradores de segmento/pilha
+   193 00000000 B8[0000]                        MOV     AX, data
+   194 00000003 8ED8                            MOV     DS, AX
+   195 00000005 B8[0000]                        MOV     AX, stack
+   196 00000008 8ED0                            MOV     SS, AX
+   197 0000000A BC[0008]                        MOV     SP, stacktop
+   198 0000000D FC                              CLD
+   199                                  
+   200                                  ; ---------------------------------------------- Modo de video
+   201 0000000E B40F                            MOV     AH, 0Fh                     ; le o modo de video atual
+   202 00000010 CD10                            INT     10h
+   203 00000012 A2[0000]                        MOV     [modo_anterior], AL         ; (restaurado na saida)
+   204                                  
+   205                                  ; ---------------------------------------------- ISRs de teclado e relogio
+   206 00000015 C606[0000]00                    MOV     byte [relogio_ativo], 0
+   207 0000001A E8(0000)                        CALL    instala_teclado
+   208 0000001D E8(0000)                        CALL    instala_relogio
+   209                                  
+   210                                  ; =============================================================================
+   211                                  ; NOVA PARTIDA: tela de selecao de lutadores
+   212                                  ; =============================================================================
+   213                                  nova_partida:
+   214 00000020 C606[0000]00                    MOV     byte [relogio_ativo], 0
+   215 00000025 C606[0000]00                    MOV     byte [sair_flag], 0
+   216 0000002A E8(0000)                        CALL    tela_selecao
+   217 0000002D 803E[0000]00                    CMP     byte [sair_flag], 0
+   218 00000032 7403                            JE      np_ok
+   219 00000034 E9F300                          JMP     fim
+   220                                  np_ok:
+   221 00000037 E8(0000)                        CALL    inicia_partida              ; placar 0 x 0
+   222                                  
+   223                                  ; =============================================================================
+   224                                  ; NOVO ROUND
+   225                                  ; =============================================================================
+   226                                  novo_round:
+   227 0000003A C606[0000]00                    MOV     byte [relogio_ativo], 0     ; cronometro parado ate o "LUTEM!"
+   228 0000003F E8(0000)                        CALL    reseta_lutadores
+   229 00000042 E8(0000)                        CALL    zera_cronometro
+   230 00000045 C606[0000]00                    MOV     byte [round_acabou], 0
+   231 0000004A C606[0000]00                    MOV     byte [ultimo_golpe], 0
+   232                                  
+   233 0000004F E8(0000)                        CALL    desenha_cenario             ; arena + HUD
+   234 00000052 BE[0000]                        MOV     SI, jogador1
+   235 00000055 E8(0000)                        CALL    pinta_jogador
+   236 00000058 BE[0000]                        MOV     SI, jogador2
+   237 0000005B E8(0000)                        CALL    pinta_jogador
+   238                                  
+   239 0000005E E8(0000)                        CALL    anuncia_round               ; "ROUND n" / "LUTEM!"
+   240 00000061 803E[0000]00                    CMP     byte [sair_flag], 0
+   241 00000066 7403                            JE      nr_ok
+   242 00000068 E9BF00                          JMP     fim
+   243                                  nr_ok:
+   244 0000006B E8(0000)                        CALL    limpa_eventos
+   245 0000006E A1[0000]                        MOV     AX, [tique_jogo]
+   246 00000071 A3[0100]                        MOV     [ultimo_tique], AX
+   247 00000074 C606[0000]01                    MOV     byte [relogio_ativo], 1     ; o tempo do round comeca a correr
+   248                                  
+   249                                  ; =============================================================================
+   250                                  ; LACO PRINCIPAL DA LUTA
+   251                                  ; Roda uma vez a cada tique da INT 8h (~55 ms, 18,2 vezes por segundo).
+   252                                  ; Entre tiques o processador fica em HLT: nao ha atraso por laco de software.
+   253                                  ; =============================================================================
+   254                                  loop_jogo:
+   255 00000079 A1[0000]                        MOV     AX, [tique_jogo]
+   256 0000007C 3B06[0100]                      CMP     AX, [ultimo_tique]
+   257 00000080 7504                            JNE     lj_tique
+   258 00000082 F4                              HLT                                 ; espera a proxima interrupcao
+   259 00000083 E9F3FF                          JMP     loop_jogo
+   260                                  lj_tique:
+   261 00000086 A3[0100]                        MOV     [ultimo_tique], AX
+   262                                  
+   263                                          ; ---- 1. Comandos pontuais: P (pausa) e Q/ESC (sair) ---------------
+   264 00000089 E8(0000)                        CALL    trata_eventos
+   265 0000008C 803E[0000]00                    CMP     byte [sair_flag], 0
+   266 00000091 7403                            JE      lj_controles
+   267 00000093 E99400                          JMP     fim
+   268                                  lj_controles:
+   269                                          ; Se houve pausa, o tique_jogo avancou durante ela: ressincroniza
+   270                                          ; para retomar exatamente do mesmo ponto.
+   271 00000096 A1[0000]                        MOV     AX, [tique_jogo]
+   272 00000099 A3[0100]                        MOV     [ultimo_tique], AX
+   273                                  
+   274                                          ; ---- 2. Teclas mantidas pressionadas (tabela de estado) ------------
+   275 0000009C E8(0000)                        CALL    le_controles
+   276                                  
+   277                                          ; ---- 3. Fisica do pulo (gravidade e pouso) -------------------------
+   278 0000009F BE[0000]                        MOV     SI, jogador1
+   279 000000A2 BF[0000]                        MOV     DI, jogador2
+   280 000000A5 E8(0000)                        CALL    fisica_jogador
+   281 000000A8 BE[0000]                        MOV     SI, jogador2
+   282 000000AB BF[0000]                        MOV     DI, jogador1
+   283 000000AE E8(0000)                        CALL    fisica_jogador
+   284                                  
+   285                                          ; ---- 4. Vira os lutadores um para o outro --------------------------
+   286 000000B1 E8(0000)                        CALL    atualiza_direcao
+   287                                  
+   288                                          ; ---- 5. Avanca os frames de animacao -------------------------------
+   289 000000B4 BE[0000]                        MOV     SI, jogador1
+   290 000000B7 E8(0000)                        CALL    atualiza_animacao
+   291 000000BA BE[0000]                        MOV     SI, jogador2
+   292 000000BD E8(0000)                        CALL    atualiza_animacao
+   293                                  
+   294                                          ; ---- 6. Golpes validos ---------------------------------------------
+   295 000000C0 BE[0000]                        MOV     SI, jogador1                ; J1 atacando J2
+   296 000000C3 BF[0000]                        MOV     DI, jogador2
+   297 000000C6 E8(0000)                        CALL    verifica_golpe
+   298 000000C9 BE[0000]                        MOV     SI, jogador2                ; J2 atacando J1
+   299 000000CC BF[0000]                        MOV     DI, jogador1
+   300 000000CF E8(0000)                        CALL    verifica_golpe
+   301                                  
+   302                                          ; ---- 7. Cronometro na tela -----------------------------------------
+   303 000000D2 E8(0000)                        CALL    desenha_tempo
+   304                                  
+   305                                          ; ---- 8. Redesenha os lutadores apenas se algo mudou ----------------
+   306 000000D5 E8(0000)                        CALL    houve_mudanca               ; AL = 1 se precisa redesenhar
+   307 000000D8 3C00                            CMP     AL, 0
+   308 000000DA 7418                            JE      lj_fim_round
+   309 000000DC BE[0000]                        MOV     SI, jogador1                ; apaga os dois na posicao antiga...
+   310 000000DF E8(0000)                        CALL    apaga_jogador
+   311 000000E2 BE[0000]                        MOV     SI, jogador2
+   312 000000E5 E8(0000)                        CALL    apaga_jogador
+   313 000000E8 BE[0000]                        MOV     SI, jogador1                ; ...e redesenha os dois na nova
+   314 000000EB E8(0000)                        CALL    pinta_jogador               ; (redesenhar ambos evita que um
+   315 000000EE BE[0000]                        MOV     SI, jogador2                ;  apague um pedaco do outro)
+   316 000000F1 E8(0000)                        CALL    pinta_jogador
+   317                                  
+   318                                          ; ---- 9. Fim do round? ----------------------------------------------
+   319                                  lj_fim_round:
+   320 000000F4 E8(0000)                        CALL    verifica_fim_round
+   321 000000F7 803E[0000]00                    CMP     byte [round_acabou], 0
+   322 000000FC 7503                            JNE     lj_round_acabou
+   323 000000FE E978FF                          JMP     loop_jogo
+   324                                  
+   325                                  lj_round_acabou:
+   326 00000101 C606[0000]00                    MOV     byte [relogio_ativo], 0
+   327 00000106 E8(0000)                        CALL    desenha_rounds              ; marca o round vencido no HUD
+   328 00000109 E8(0000)                        CALL    anuncia_fim_round
+   329 0000010C 803E[0000]00                    CMP     byte [sair_flag], 0
+   330 00000111 7403                            JE      lj_proximo
+   331 00000113 E91400                          JMP     fim
+   332                                  lj_proximo:
+   333 00000116 803E[0000]00                    CMP     byte [vencedor], 0
+   334 0000011B 7503                            JNE     game_over
+   335 0000011D E91AFF                          JMP     novo_round
+   336                                  
+   337                                  ; =============================================================================
+   338                                  ; GAME OVER: Y = nova partida, N = encerra
+   339                                  ; =============================================================================
+   340                                  game_over:
+   341 00000120 E8(0000)                        CALL    tela_game_over              ; AL = 1 (Y) ou 0 (N / Q confirmado)
+   342 00000123 3C01                            CMP     AL, 1
+   343 00000125 7503                            JNE     fim
+   344 00000127 E9F6FE                          JMP     nova_partida
+   345                                  
+   346                                  ; =============================================================================
+   347                                  ; fim: restaura vetores e modo de video e devolve o controle ao DOS.
+   348                                  ; Unico ponto de saida do programa (Game Over -> N, ou Q/ESC confirmado).
+   349                                  ; =============================================================================
+   350                                  fim:
+   351 0000012A C606[0000]00                    MOV     byte [relogio_ativo], 0
+   352 0000012F E8(0000)                        CALL    restaura_relogio            ; vetor original da INT 8h
+   353 00000132 E8(0000)                        CALL    restaura_teclado            ; vetor original da INT 9h
+   354                                  
+   355 00000135 B400                            MOV     AH, 0                       ; modo de video original
+   356 00000137 A0[0000]                        MOV     AL, [modo_anterior]
+   357 0000013A CD10                            INT     10h
+   358                                  
+   359 0000013C B8004C                          MOV     AX, 4C00h                   ; retorna ao DOS
+   360 0000013F CD21                            INT     21h
+   361                                  
+   362                                  ; =============================================================================
+   363                                  segment data public class=DATA
+   364                                  
+   365 00000000 00                      modo_anterior   DB      0           ; modo de video ao iniciar o programa
+   366 00000001 0000                    ultimo_tique    DW      0           ; ultimo tique processado pelo laco
+   367                                  
+   368                                  ; =============================================================================
+   369                                  segment stack stack
+   370 00000000 <res 00000800>                  resb    2048
+   371                                  stacktop:

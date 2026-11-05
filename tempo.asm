@@ -31,7 +31,7 @@ global  tique_jogo
 global  segundos
 global  relogio_ativo
 
-FRAC_POR_TIQUE  EQU     5           ; 5/91 s por tique = 1/18,2 s
+FRAC_POR_TIQUE  EQU     5           ; 5/91 s p/tick = 1/18,2 s
 FRAC_POR_SEG    EQU     91
 
 segment code public class=CODE

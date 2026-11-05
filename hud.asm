@@ -277,6 +277,7 @@ mc_fim:
 desenha_tempo:
         PUSH    AX
         PUSH    BX
+        PUSH    CX
         PUSH    DX
 
         MOV     AX, [segundos]
@@ -284,31 +285,42 @@ desenha_tempo:
         JE      dt_fim
         MOV     [ultimo_seg], AX
 
+        ; Limpa fundo dos 3 digitos (X=304-327, Y=448-463)
+        MOV     byte [cor], preto
+        MOV     CX, 304
+dt_limpa:
+        PUSH    CX
+        MOV     AX, 448
+        PUSH    AX
+        PUSH    CX
+        MOV     AX, 463
+        PUSH    AX
+        CALL    line
+        INC     CX
+        CMP     CX, 328
+        JL      dt_limpa
+
         MOV     AX, TEMPO_ROUND
-        SUB     AX, [segundos]              ; AX = segundos restantes
+        SUB     AX, [segundos]
         JNS     dt_pos
         XOR     AX, AX
 dt_pos:
-        MOV     BL, 60
-        DIV     BL                          ; AL = minutos, AH = segundos
+        MOV     BL, 100
+        DIV     BL                          ; AL = centena, AH = resto 0-99
         MOV     BH, AH
 
         MOV     byte [cor], branco_intenso
-        MOV     DH, LIN_TEMPO
-        MOV     DL, COL_TEMPO
+        MOV     DH, 1
+        MOV     DL, 38
         CALL    cursor
         ADD     AL, '0'
-        CALL    caracter                    ; minutos
-
-        INC     DL
-        CALL    cursor
-        MOV     AL, ':'
         CALL    caracter
 
         MOV     AL, BH
         XOR     AH, AH
         MOV     BL, 10
-        DIV     BL                          ; AL = dezena, AH = unidade
+        DIV     BL
+
         INC     DL
         CALL    cursor
         ADD     AL, '0'
@@ -322,6 +334,7 @@ dt_pos:
 
 dt_fim:
         POP     DX
+        POP     CX
         POP     BX
         POP     AX
         RET
