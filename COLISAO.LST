@@ -103,7 +103,7 @@
    103                              <1> DIST_MIN        EQU     50          ; distancia minima entre os dois lutadores
    104                              <1> Y_CHAO          EQU     156         ; Y dos ombros com o lutador no chao
    105                              <1> VEL_PULO        EQU     22          ; velocidade vertical inicial do pulo (px/tique)
-   106                              <1> GRAVIDADE       EQU     2           ; reducao de VY a cada tique
+   106                              <1> GRAVIDADE       EQU     3           ; reducao de VY a cada tique
    107                              <1> X_INICIAL_J1    EQU     150
    108                              <1> X_INICIAL_J2    EQU     490
    109                              <1> 

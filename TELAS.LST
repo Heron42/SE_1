@@ -101,7 +101,7 @@
    101                              <1> DIST_MIN        EQU     50          ; distancia minima entre os dois lutadores
    102                              <1> Y_CHAO          EQU     156         ; Y dos ombros com o lutador no chao
    103                              <1> VEL_PULO        EQU     22          ; velocidade vertical inicial do pulo (px/tique)
-   104                              <1> GRAVIDADE       EQU     2           ; reducao de VY a cada tique
+   104                              <1> GRAVIDADE       EQU     3           ; reducao de VY a cada tique
    105                              <1> X_INICIAL_J1    EQU     150
    106                              <1> X_INICIAL_J2    EQU     490
    107                              <1> 
@@ -475,7 +475,7 @@
    475 000001E1 BE[A100]                        MOV     SI, str_nocaute
    476 000001E4 803E[0000]02                    CMP     byte [motivo_fim], MOTIVO_TEMPO
    477 000001E9 7503                            JNE     afr_motivo
-   478 000001EB BE[AA00]                        MOV     SI, str_tempo
+   478 000001EB BE[A400]                        MOV     SI, str_tempo
    479                                  afr_motivo:
    480 000001EE B606                            MOV     DH, LIN_MSG
    481 000001F0 E8(0000)                        CALL    msg_centro
@@ -483,8 +483,8 @@
    483 000001F3 A0[0000]                        MOV     AL, [vencedor_round]
    484 000001F6 E81900                          CALL    cor_do_jogador              ; [cor] = cor do vencedor
    485 000001F9 0430                            ADD     AL, '0'
-   486 000001FB A2[C200]                        MOV     [str_vence_round+8], AL
-   487 000001FE BE[BA00]                        MOV     SI, str_vence_round
+   486 000001FB A2[BC00]                        MOV     [str_vence_round+8], AL
+   487 000001FE BE[B400]                        MOV     SI, str_vence_round
    488 00000201 B607                            MOV     DH, LIN_MSG + 1
    489 00000203 E8(0000)                        CALL    msg_centro
    490                                  
@@ -530,26 +530,26 @@
    530 0000022C E8(0000)                        CALL    limpa_eventos
    531                                  
    532 0000022F C606[0000]0E                    MOV     byte [cor], amarelo
-   533 00000234 BE[D300]                        MOV     SI, str_game_over
+   533 00000234 BE[CD00]                        MOV     SI, str_game_over
    534 00000237 B604                            MOV     DH, 4
    535 00000239 E8(0000)                        CALL    msg_centro
    536                                  
    537 0000023C A0[0000]                        MOV     AL, [vencedor]
    538 0000023F E8D0FF                          CALL    cor_do_jogador
    539 00000242 0430                            ADD     AL, '0'
-   540 00000244 A2[E500]                        MOV     [str_campeao+8], AL
-   541 00000247 BE[DD00]                        MOV     SI, str_campeao
+   540 00000244 A2[DF00]                        MOV     [str_campeao+8], AL
+   541 00000247 BE[D700]                        MOV     SI, str_campeao
    542 0000024A B607                            MOV     DH, 7
    543 0000024C E8(0000)                        CALL    msg_centro
    544                                  
    545 0000024F A0[0000]                        MOV     AL, [rounds_p1]             ; "Placar final: J1 x - y J2"
    546 00000252 0430                            ADD     AL, '0'
-   547 00000254 A2[0A01]                        MOV     [str_placar+17], AL
+   547 00000254 A2[0401]                        MOV     [str_placar+17], AL
    548 00000257 A0[0000]                        MOV     AL, [rounds_p2]
    549 0000025A 0430                            ADD     AL, '0'
-   550 0000025C A2[0E01]                        MOV     [str_placar+21], AL
+   550 0000025C A2[0801]                        MOV     [str_placar+21], AL
    551 0000025F C606[0000]0F                    MOV     byte [cor], branco_intenso
-   552 00000264 BE[F900]                        MOV     SI, str_placar
+   552 00000264 BE[F300]                        MOV     SI, str_placar
    553 00000267 B609                            MOV     DH, 9
    554 00000269 E8(0000)                        CALL    msg_centro
    555                                  
@@ -568,7 +568,7 @@
    568 00000288 E8(0000)                        CALL    desenha_jogador
    569                                  
    570 0000028B C606[0000]0E                    MOV     byte [cor], amarelo
-   571 00000290 BE[1301]                        MOV     SI, str_nova
+   571 00000290 BE[0D01]                        MOV     SI, str_nova
    572 00000293 B618                            MOV     DH, 24
    573 00000295 E8(0000)                        CALL    msg_centro
    574                                  
@@ -639,22 +639,22 @@
    639                                  ; execucao pelo digito correspondente; o indice usado esta indicado ao lado.
    640 00000092 524F554E44206E00        str_round       DB      'ROUND n', 0                    ; n = indice 6
    641 0000009A 4C5554454D2100          str_lutem       DB      'LUTEM!', 0
-   642 000000A1 4E4F43415554452100      str_nocaute     DB      'NOCAUTE!', 0
-   643 000000AA 54454D504F20455347-     str_tempo       DB      'TEMPO ESGOTADO!', 0
-   644 000000B3 4F5441444F2100     
-   645 000000BA 4A4F4741444F52206E-     str_vence_round DB      'JOGADOR n VENCEU O ROUND', 0   ; n = indice 8
-   646 000000C3 2056454E434555204F-
-   647 000000CC 20524F554E4400     
+   642 000000A1 4B4F00                  str_nocaute     DB      'KO', 0
+   643 000000A4 54454D504F20455347-     str_tempo       DB      'TEMPO ESGOTADO!', 0
+   644 000000AD 4F5441444F2100     
+   645 000000B4 4A4F4741444F52206E-     str_vence_round DB      'JOGADOR n VENCEU O ROUND', 0   ; n = indice 8
+   646 000000BD 2056454E434555204F-
+   647 000000C6 20524F554E4400     
    648                                  
-   649 000000D3 47414D45204F564552-     str_game_over   DB      'GAME OVER', 0
-   650 000000DC 00                 
-   651 000000DD 4A4F4741444F52206E-     str_campeao     DB      'JOGADOR n VENCEU A PARTIDA!', 0 ; n = indice 8
-   652 000000E6 2056454E4345552041-
-   653 000000EF 205041525449444121-
-   654 000000F8 00                 
-   655 000000F9 506C61636172206669-     str_placar      DB      'Placar final: J1 x - y J2', 0  ; x = 17, y = 21
-   656 00000102 6E616C3A204A312078-
-   657 0000010B 202D2079204A3200   
-   658 00000113 4E6F76612070617274-     str_nova        DB      'Nova partida? (Y/N)', 0
-   659 0000011C 6964613F2028592F4E-
-   660 00000125 2900               
+   649 000000CD 47414D45204F564552-     str_game_over   DB      'GAME OVER', 0
+   650 000000D6 00                 
+   651 000000D7 4A4F4741444F52206E-     str_campeao     DB      'JOGADOR n VENCEU A PARTIDA!', 0 ; n = indice 8
+   652 000000E0 2056454E4345552041-
+   653 000000E9 205041525449444121-
+   654 000000F2 00                 
+   655 000000F3 506C61636172206669-     str_placar      DB      'Placar final: J1 x - y J2', 0  ; x = 17, y = 21
+   656 000000FC 6E616C3A204A312078-
+   657 00000105 202D2079204A3200   
+   658 0000010D 4E6F76612070617274-     str_nova        DB      'Nova partida? (Y/N)', 0
+   659 00000116 6964613F2028592F4E-
+   660 0000011F 2900               

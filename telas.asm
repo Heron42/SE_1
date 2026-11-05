@@ -509,7 +509,7 @@ str_iniciar     DB      '', 0
 ; execucao pelo digito correspondente; o indice usado esta indicado ao lado.
 str_round       DB      'ROUND n', 0                    ; n = indice 6
 str_lutem       DB      'LUTEM!', 0
-str_nocaute     DB      'NOCAUTE!', 0
+str_nocaute     DB      'KO', 0
 str_tempo       DB      'TEMPO ESGOTADO!', 0
 str_vence_round DB      'JOGADOR n VENCEU O ROUND', 0   ; n = indice 8
 

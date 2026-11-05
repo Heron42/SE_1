@@ -118,7 +118,7 @@
    118                              <1> DIST_MIN        EQU     50          ; distancia minima entre os dois lutadores
    119                              <1> Y_CHAO          EQU     156         ; Y dos ombros com o lutador no chao
    120                              <1> VEL_PULO        EQU     22          ; velocidade vertical inicial do pulo (px/tique)
-   121                              <1> GRAVIDADE       EQU     2           ; reducao de VY a cada tique
+   121                              <1> GRAVIDADE       EQU     3           ; reducao de VY a cada tique
    122                              <1> X_INICIAL_J1    EQU     150
    123                              <1> X_INICIAL_J2    EQU     490
    124                              <1> 
@@ -321,7 +321,7 @@
    321 000000E3 B606                            MOV     DH, LIN_MSG
    322 000000E5 E8(0000)                        CALL    msg_centro
    323 000000E8 C606[0000]07                    MOV     byte [cor], branco
-   324 000000ED BE[0F00]                        MOV     SI, str_continuar
+   324 000000ED BE[0E00]                        MOV     SI, str_continuar
    325 000000F0 B607                            MOV     DH, LIN_MSG + 1
    326 000000F2 E8(0000)                        CALL    msg_centro
    327                                  
@@ -369,7 +369,7 @@
    369                                  
    370 0000012E 8A3E[0000]                      MOV     BH, [cor]                   ; preserva a cor corrente
    371 00000132 C606[0000]0E                    MOV     byte [cor], amarelo
-   372 00000137 BE[2A00]                        MOV     SI, str_sair
+   372 00000137 BE[0F00]                        MOV     SI, str_sair
    373 0000013A B61B                            MOV     DH, LIN_CONFIRMA
    374 0000013C E8(0000)                        CALL    msg_centro
    375                                  
@@ -459,11 +459,7 @@
    459 00000006 00                      ultimo_golpe    DB      0           ; quem acertou o ultimo golpe (0 = ninguem)
    460 00000007 00                      sair_flag       DB      0           ; 1 = usuario confirmou a saida
    461                                  
-   462 00000008 50415553454400          str_pausado     DB      'PAUSED', 0
-   463 0000000F 5072657373696F6E65-     str_continuar   DB      'Pressione P para continuar', 0
-   464 00000018 205020706172612063-
-   465 00000021 6F6E74696E75617200 
-   466 0000002A 446573656A61207265-     str_sair        DB      'Deseja realmente sair? (Y/N)', 0
-   467 00000033 616C6D656E74652073-
-   468 0000003C 6169723F2028592F4E-
-   469 00000045 2900               
+   462 00000008 504155534500            str_pausado     DB      'PAUSE', 0
+   463 0000000E 00                      str_continuar   DB      '', 0
+   464 0000000F 536169723F2028592F-     str_sair        DB      'Sair? (Y/N)', 0
+   465 00000018 4E2900             

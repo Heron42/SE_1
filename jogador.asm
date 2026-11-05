@@ -269,7 +269,10 @@ ip_fim:
 ; fisica_jogador
 ; Entrada: SI = jogador, DI = adversario. Executada uma vez por tique.
 ;   Y  <- Y + VY
-;   VY <- VY - GRAVIDADE
+;   VY <- VY - 
+
+
+
 ; Ao tocar o chao (Y <= Y_CHAO): fixa Y no chao, zera VY, encerra o pulo
 ; e resolve uma eventual sobreposicao com o adversario.
 ; Com VEL_PULO = 22 e GRAVIDADE = 2 o pulo sobe 132 px e dura ~1,3 s

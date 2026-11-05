@@ -335,6 +335,6 @@ motivo_fim      DB      0           ; MOTIVO_KO ou MOTIVO_TEMPO
 ultimo_golpe    DB      0           ; quem acertou o ultimo golpe (0 = ninguem)
 sair_flag       DB      0           ; 1 = usuario confirmou a saida
 
-str_pausado     DB      'PAUSED', 0
-str_continuar   DB      'Pressione P para continuar', 0
-str_sair        DB      'Deseja realmente sair? (Y/N)', 0
+str_pausado     DB      'PAUSE', 0
+str_continuar   DB      '', 0
+str_sair        DB      'Sair? (Y/N)', 0

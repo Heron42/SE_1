@@ -86,7 +86,7 @@ LIM_DIR         EQU     598         ; maior X permitido (braco vai ate +27)
 DIST_MIN        EQU     50          ; distancia minima entre os dois lutadores
 Y_CHAO          EQU     156         ; Y dos ombros com o lutador no chao
 VEL_PULO        EQU     22          ; velocidade vertical inicial do pulo (px/tique)
-GRAVIDADE       EQU     2           ; reducao de VY a cada tique
+GRAVIDADE       EQU     3           ; reducao de VY a cada tique
 X_INICIAL_J1    EQU     150
 X_INICIAL_J2    EQU     490
 
