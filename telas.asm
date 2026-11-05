@@ -499,11 +499,11 @@ str_marca_on    DB      '>', 0
 str_marca_off   DB      ' ', 0
 
 str_titulo      DB      'SELECAO DE LUTADORES', 0
-str_cab_j1      DB      'JOGADOR 1  (W/S)', 0
-str_cab_j2      DB      'JOGADOR 2  (SETAS)', 0
-str_ctrl_j1     DB      'J1: A/D andar  W pular  S abaixar  R chute  T soco', 0
-str_ctrl_j2     DB      'J2: setas andar/pular/abaixar  N chute  M soco', 0
-str_iniciar     DB      'ENTER: iniciar a luta    P: pausa    Q: sair', 0
+str_cab_j1      DB      'JOGADOR 1', 0
+str_cab_j2      DB      'JOGADOR 2', 0
+str_ctrl_j1     DB      '', 0
+str_ctrl_j2     DB      '', 0
+str_iniciar     DB      '', 0
 
 ; Nos textos abaixo, o "n" (e o "x"/"y" do placar) e substituido em tempo de
 ; execucao pelo digito correspondente; o indice usado esta indicado ao lado.

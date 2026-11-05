@@ -207,19 +207,19 @@
    207 00000020 B605                            MOV     DH, LIN_CABECALHO
    208 00000022 B204                            MOV     DL, COL_MARCA_J1 - 1
    209 00000024 E8(0000)                        CALL    escreve_texto
-   210 00000027 BE[8C00]                        MOV     SI, str_cab_j2
+   210 00000027 BE[8500]                        MOV     SI, str_cab_j2
    211 0000002A B23A                            MOV     DL, COL_MARCA_J2 - 1
    212 0000002C E8(0000)                        CALL    escreve_texto
    213                                  
    214 0000002F C606[0000]07                    MOV     byte [cor], branco
-   215 00000034 BE[9F00]                        MOV     SI, str_ctrl_j1
+   215 00000034 BE[8F00]                        MOV     SI, str_ctrl_j1
    216 00000037 B617                            MOV     DH, LIN_CTRL
    217 00000039 E8(0000)                        CALL    msg_centro
-   218 0000003C BE[D200]                        MOV     SI, str_ctrl_j2
+   218 0000003C BE[9000]                        MOV     SI, str_ctrl_j2
    219 0000003F B618                            MOV     DH, LIN_CTRL + 1
    220 00000041 E8(0000)                        CALL    msg_centro
    221 00000044 C606[0000]0E                    MOV     byte [cor], amarelo
-   222 00000049 BE[0101]                        MOV     SI, str_iniciar
+   222 00000049 BE[9100]                        MOV     SI, str_iniciar
    223 0000004C B619                            MOV     DH, LIN_CTRL + 2
    224 0000004E E8(0000)                        CALL    msg_centro
    225                                  
@@ -435,10 +435,10 @@
    435 00000195 A0[0000]                        MOV     AL, [rounds_p1]
    436 00000198 0206[0000]                      ADD     AL, [rounds_p2]
    437 0000019C 0431                            ADD     AL, '1'                     ; numero do round atual
-   438 0000019E A2[3401]                        MOV     [str_round+6], AL
+   438 0000019E A2[9800]                        MOV     [str_round+6], AL
    439                                  
    440 000001A1 C606[0000]0E                    MOV     byte [cor], amarelo
-   441 000001A6 BE[2E01]                        MOV     SI, str_round
+   441 000001A6 BE[9200]                        MOV     SI, str_round
    442 000001A9 B606                            MOV     DH, LIN_MSG
    443 000001AB E8(0000)                        CALL    msg_centro
    444 000001AE B91B00                          MOV     CX, TIQUES_ROUND
@@ -448,7 +448,7 @@
    448                                  
    449 000001BB E8(0000)                        CALL    apaga_linha                 ; DH = LIN_MSG
    450 000001BE C606[0000]0E                    MOV     byte [cor], amarelo
-   451 000001C3 BE[3601]                        MOV     SI, str_lutem
+   451 000001C3 BE[9A00]                        MOV     SI, str_lutem
    452 000001C6 E8(0000)                        CALL    msg_centro
    453 000001C9 B90B00                          MOV     CX, TIQUES_LUTEM
    454 000001CC E8(0000)                        CALL    aguarda
@@ -472,10 +472,10 @@
    472 000001DB 56                              PUSH    SI
    473                                  
    474 000001DC C606[0000]0E                    MOV     byte [cor], amarelo
-   475 000001E1 BE[3D01]                        MOV     SI, str_nocaute
+   475 000001E1 BE[A100]                        MOV     SI, str_nocaute
    476 000001E4 803E[0000]02                    CMP     byte [motivo_fim], MOTIVO_TEMPO
    477 000001E9 7503                            JNE     afr_motivo
-   478 000001EB BE[4601]                        MOV     SI, str_tempo
+   478 000001EB BE[AA00]                        MOV     SI, str_tempo
    479                                  afr_motivo:
    480 000001EE B606                            MOV     DH, LIN_MSG
    481 000001F0 E8(0000)                        CALL    msg_centro
@@ -483,8 +483,8 @@
    483 000001F3 A0[0000]                        MOV     AL, [vencedor_round]
    484 000001F6 E81900                          CALL    cor_do_jogador              ; [cor] = cor do vencedor
    485 000001F9 0430                            ADD     AL, '0'
-   486 000001FB A2[5E01]                        MOV     [str_vence_round+8], AL
-   487 000001FE BE[5601]                        MOV     SI, str_vence_round
+   486 000001FB A2[C200]                        MOV     [str_vence_round+8], AL
+   487 000001FE BE[BA00]                        MOV     SI, str_vence_round
    488 00000201 B607                            MOV     DH, LIN_MSG + 1
    489 00000203 E8(0000)                        CALL    msg_centro
    490                                  
@@ -530,26 +530,26 @@
    530 0000022C E8(0000)                        CALL    limpa_eventos
    531                                  
    532 0000022F C606[0000]0E                    MOV     byte [cor], amarelo
-   533 00000234 BE[6F01]                        MOV     SI, str_game_over
+   533 00000234 BE[D300]                        MOV     SI, str_game_over
    534 00000237 B604                            MOV     DH, 4
    535 00000239 E8(0000)                        CALL    msg_centro
    536                                  
    537 0000023C A0[0000]                        MOV     AL, [vencedor]
    538 0000023F E8D0FF                          CALL    cor_do_jogador
    539 00000242 0430                            ADD     AL, '0'
-   540 00000244 A2[8101]                        MOV     [str_campeao+8], AL
-   541 00000247 BE[7901]                        MOV     SI, str_campeao
+   540 00000244 A2[E500]                        MOV     [str_campeao+8], AL
+   541 00000247 BE[DD00]                        MOV     SI, str_campeao
    542 0000024A B607                            MOV     DH, 7
    543 0000024C E8(0000)                        CALL    msg_centro
    544                                  
    545 0000024F A0[0000]                        MOV     AL, [rounds_p1]             ; "Placar final: J1 x - y J2"
    546 00000252 0430                            ADD     AL, '0'
-   547 00000254 A2[A601]                        MOV     [str_placar+17], AL
+   547 00000254 A2[0A01]                        MOV     [str_placar+17], AL
    548 00000257 A0[0000]                        MOV     AL, [rounds_p2]
    549 0000025A 0430                            ADD     AL, '0'
-   550 0000025C A2[AA01]                        MOV     [str_placar+21], AL
+   550 0000025C A2[0E01]                        MOV     [str_placar+21], AL
    551 0000025F C606[0000]0F                    MOV     byte [cor], branco_intenso
-   552 00000264 BE[9501]                        MOV     SI, str_placar
+   552 00000264 BE[F900]                        MOV     SI, str_placar
    553 00000267 B609                            MOV     DH, 9
    554 00000269 E8(0000)                        CALL    msg_centro
    555                                  
@@ -568,7 +568,7 @@
    568 00000288 E8(0000)                        CALL    desenha_jogador
    569                                  
    570 0000028B C606[0000]0E                    MOV     byte [cor], amarelo
-   571 00000290 BE[AF01]                        MOV     SI, str_nova
+   571 00000290 BE[1301]                        MOV     SI, str_nova
    572 00000293 B618                            MOV     DH, 24
    573 00000295 E8(0000)                        CALL    msg_centro
    574                                  
@@ -627,49 +627,34 @@
    627 00000066 53454C4543414F2044-     str_titulo      DB      'SELECAO DE LUTADORES', 0
    628 0000006F 45204C555441444F52-
    629 00000078 455300             
-   630 0000007B 4A4F4741444F522031-     str_cab_j1      DB      'JOGADOR 1  (W/S)', 0
-   631 00000084 202028572F532900   
-   632 0000008C 4A4F4741444F522032-     str_cab_j2      DB      'JOGADOR 2  (SETAS)', 0
-   633 00000095 202028534554415329-
-   634 0000009E 00                 
-   635 0000009F 4A313A20412F442061-     str_ctrl_j1     DB      'J1: A/D andar  W pular  S abaixar  R chute  T soco', 0
-   636 000000A8 6E6461722020572070-
-   637 000000B1 756C61722020532061-
-   638 000000BA 626169786172202052-
-   639 000000C3 206368757465202054-
-   640 000000CC 20736F636F00       
-   641 000000D2 4A323A207365746173-     str_ctrl_j2     DB      'J2: setas andar/pular/abaixar  N chute  M soco', 0
-   642 000000DB 20616E6461722F7075-
-   643 000000E4 6C61722F6162616978-
-   644 000000ED 617220204E20636875-
-   645 000000F6 746520204D20736F63-
-   646 000000FF 6F00               
-   647 00000101 454E5445523A20696E-     str_iniciar     DB      'ENTER: iniciar a luta    P: pausa    Q: sair', 0
-   648 0000010A 69636961722061206C-
-   649 00000113 75746120202020503A-
-   650 0000011C 207061757361202020-
-   651 00000125 20513A207361697200 
-   652                                  
-   653                                  ; Nos textos abaixo, o "n" (e o "x"/"y" do placar) e substituido em tempo de
-   654                                  ; execucao pelo digito correspondente; o indice usado esta indicado ao lado.
-   655 0000012E 524F554E44206E00        str_round       DB      'ROUND n', 0                    ; n = indice 6
-   656 00000136 4C5554454D2100          str_lutem       DB      'LUTEM!', 0
-   657 0000013D 4E4F43415554452100      str_nocaute     DB      'NOCAUTE!', 0
-   658 00000146 54454D504F20455347-     str_tempo       DB      'TEMPO ESGOTADO!', 0
-   659 0000014F 4F5441444F2100     
-   660 00000156 4A4F4741444F52206E-     str_vence_round DB      'JOGADOR n VENCEU O ROUND', 0   ; n = indice 8
-   661 0000015F 2056454E434555204F-
-   662 00000168 20524F554E4400     
-   663                                  
-   664 0000016F 47414D45204F564552-     str_game_over   DB      'GAME OVER', 0
-   665 00000178 00                 
-   666 00000179 4A4F4741444F52206E-     str_campeao     DB      'JOGADOR n VENCEU A PARTIDA!', 0 ; n = indice 8
-   667 00000182 2056454E4345552041-
-   668 0000018B 205041525449444121-
-   669 00000194 00                 
-   670 00000195 506C61636172206669-     str_placar      DB      'Placar final: J1 x - y J2', 0  ; x = 17, y = 21
-   671 0000019E 6E616C3A204A312078-
-   672 000001A7 202D2079204A3200   
-   673 000001AF 4E6F76612070617274-     str_nova        DB      'Nova partida? (Y/N)', 0
-   674 000001B8 6964613F2028592F4E-
-   675 000001C1 2900               
+   630 0000007B 4A4F4741444F522031-     str_cab_j1      DB      'JOGADOR 1', 0
+   631 00000084 00                 
+   632 00000085 4A4F4741444F522032-     str_cab_j2      DB      'JOGADOR 2', 0
+   633 0000008E 00                 
+   634 0000008F 00                      str_ctrl_j1     DB      '', 0
+   635 00000090 00                      str_ctrl_j2     DB      '', 0
+   636 00000091 00                      str_iniciar     DB      '', 0
+   637                                  
+   638                                  ; Nos textos abaixo, o "n" (e o "x"/"y" do placar) e substituido em tempo de
+   639                                  ; execucao pelo digito correspondente; o indice usado esta indicado ao lado.
+   640 00000092 524F554E44206E00        str_round       DB      'ROUND n', 0                    ; n = indice 6
+   641 0000009A 4C5554454D2100          str_lutem       DB      'LUTEM!', 0
+   642 000000A1 4E4F43415554452100      str_nocaute     DB      'NOCAUTE!', 0
+   643 000000AA 54454D504F20455347-     str_tempo       DB      'TEMPO ESGOTADO!', 0
+   644 000000B3 4F5441444F2100     
+   645 000000BA 4A4F4741444F52206E-     str_vence_round DB      'JOGADOR n VENCEU O ROUND', 0   ; n = indice 8
+   646 000000C3 2056454E434555204F-
+   647 000000CC 20524F554E4400     
+   648                                  
+   649 000000D3 47414D45204F564552-     str_game_over   DB      'GAME OVER', 0
+   650 000000DC 00                 
+   651 000000DD 4A4F4741444F52206E-     str_campeao     DB      'JOGADOR n VENCEU A PARTIDA!', 0 ; n = indice 8
+   652 000000E6 2056454E4345552041-
+   653 000000EF 205041525449444121-
+   654 000000F8 00                 
+   655 000000F9 506C61636172206669-     str_placar      DB      'Placar final: J1 x - y J2', 0  ; x = 17, y = 21
+   656 00000102 6E616C3A204A312078-
+   657 0000010B 202D2079204A3200   
+   658 00000113 4E6F76612070617274-     str_nova        DB      'Nova partida? (Y/N)', 0
+   659 0000011C 6964613F2028592F4E-
+   660 00000125 2900               
