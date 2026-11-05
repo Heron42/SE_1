@@ -1,0 +1,29 @@
+# =============================================================================
+# .gitignore  -  Jogo de Luta em Assembly 8086
+# -----------------------------------------------------------------------------
+# Arquivos gerados pela montagem (MAKE.BAT / NASM.BAT / Makefile). Sao
+# recriados a cada "make" e nao devem ser versionados.
+# O TRABALHO.EXE continua versionado de proposito, para rodar sem montar.
+# =============================================================================
+
+# Objetos e listagens do NASM (maiusculas e minusculas: o DOS grava em
+# maiusculas, outros sistemas podem gravar em minusculas)
+*.obj
+*.OBJ
+*.lst
+*.LST
+
+# Mensagens de erro do NASM (opcao -E) e mapas do ligador
+*.err
+*.ERR
+*.map
+*.MAP
+
+# Copias de seguranca de editores do DOS
+*.bak
+*.BAK
+
+# Arquivos de sistema
+Thumbs.db
+desktop.ini
+.DS_Store

@@ -36,11 +36,11 @@ Rode o jogo:
 trabalho
 ```
 
-Para apagar os arquivos gerados: `del *.obj`, `del *.lst` e `del trabalho.exe` (ou `clean` no `Makefile`).
+Os arquivos gerados na montagem (`.obj` e `.lst`) não são versionados (ver `.gitignore`). Para apagá-los: `del *.obj` e `del *.lst`. O `TRABALHO.EXE` é mantido no repositório, para que o jogo possa ser executado sem montar.
 
 ## Como jogar
 
-1. **Seleção de lutadores.** O J1 escolhe a cor com **W/S** e o J2 com **↑/↓**. **Enter** inicia a luta. Há 8 cores; a cor já escolhida pelo adversário é pulada automaticamente.
+1. **Seleção de lutadores.** O J1 escolhe a cor com **W/S** e o J2 com **↑/↓**. **Enter** inicia a luta. Há 8 cores; a cor já escolhida pelo adversário é pulada automaticamente. A tela não mostra esses comandos; eles estão descritos aqui.
 2. **Luta.** Os controles são:
 
    | Ação | Jogador 1 | Jogador 2 |
@@ -63,7 +63,7 @@ Para apagar os arquivos gerados: `del *.obj`, `del *.lst` e `del trabalho.exe` (
 * **Soco:** acerta se o adversário estiver perto e na mesma altura. **Defesa:** abaixar ou pular.
 * **Chute (rasteira):** acerta se o adversário estiver perto e no chão. **Defesa:** pular.
 * Cada golpe só causa dano uma vez, no frame de impacto da animação.
-* O round termina quando um lutador chega a energia 0 ou quando o tempo de **3 minutos** acaba. O tempo restante aparece no centro do HUD, no formato M:SS.
+* O round termina quando um lutador chega a energia 0 ou quando o tempo de **3 minutos** acaba. O tempo restante aparece no centro do HUD, em segundos (de 180 a 0).
 * A partida é em **melhor de três**: vence quem ganhar 2 rounds.
 
 ### Critério de vencedor do round
@@ -90,7 +90,10 @@ Aplicado em ordem (rotina `verifica_fim_round`, em `logica.asm`):
 | `graficos.asm` | Primitivas gráficas do modo 12h (ponto, linha, círculo, texto) e desenho do boneco |
 | `const.inc` | Constantes compartilhadas (portas, scan codes, cores, regras, estrutura do jogador) |
 | `MAKE.BAT` / `NASM.BAT` | Montagem dos módulos e ligação (padrão da disciplina) |
+| `MONTA.BAT` | Alternativa equivalente ao `MAKE.BAT`, com os comandos do `nasm16` escritos por extenso |
 | `Makefile` | Mesma montagem, para uso com um programa `make` |
+| `NASM16.EXE` / `FREELINK.EXE` | Montador e ligador usados na montagem |
+| `.gitignore` | Impede que os arquivos gerados (`.obj`, `.lst`) sejam versionados |
 
 ## Detalhes técnicos
 
