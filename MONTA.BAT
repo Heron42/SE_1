@@ -1,8 +1,3 @@
-@echo off
-rem ===========================================================================
-rem MONTA.BAT - alternativa ao Makefile, caso nao haja "make" no DOS.
-rem Faz exatamente os mesmos passos: monta os 9 modulos e liga com o FREELINK.
-rem ===========================================================================
 nasm16 -f obj -o trabalho.obj -l trabalho.lst trabalho.asm
 nasm16 -f obj -o teclado.obj  -l teclado.lst  teclado.asm
 nasm16 -f obj -o tempo.obj    -l tempo.lst    tempo.asm

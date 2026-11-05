@@ -22,7 +22,7 @@
 ;   graficos.asm : primitivas graficas (modo 12h) e desenho do boneco
 ;   const.inc    : constantes compartilhadas
 ;
-; Montagem: ver Makefile (make / make clean).
+; Montagem: MAKE.BAT (padrao da disciplina) ou Makefile. Ver README.md.
 ; =============================================================================
 
 %include "const.inc"

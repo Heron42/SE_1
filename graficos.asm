@@ -24,24 +24,27 @@ global  cor
 segment code public class=CODE
 
 ;-----------------------------------------------------------------------------
-; desenha_jogador
+; desenha_jogador  (esqueleto dinamico, 40 bytes por frame)
 ; Entrada:
 ;   AL = cor (use preto para APAGAR)
-;   AH = indice do frame da animacao (cada frame = 32 bytes em v_idle)
-;	BH = estado da animação (0 = idle, 1 = andando, 2 = soco, 3 = chute)
+;   AH = indice do frame dentro da animacao do estado
+;   BH = estado da animacao (0 = parado, 1 = andando, 2 = soco,
+;        3 = chute/rasteira, 4 = abaixado); escolhe a tabela em
+;        tabela_animacoes
 ;   BL = espelho: 0 = olha para a direita, 1 = olha para a esquerda
 ;        (com espelho, os offsets X do frame tem o sinal invertido)
 ;   CX = X base (centro do tronco)
 ;   DX = Y base (altura dos ombros)
 ; Preserva todos os registradores e flags.
 ;
-; Formato de um frame (8 pontos X,Y relativos ao ombro):
-;   braco esq: articulacao, mao   | braco dir: articulacao, mao
-;   perna esq: joelho, pe         | perna dir: joelho, pe
-; Bracos partem do ombro (X, Y); pernas partem do quadril (X, Y - tam_corpo).
-;-----------------------------------------------------------------------------
-;-----------------------------------------------------------------------------
-; desenha_jogador (Versão Esqueleto Dinâmico - 40 bytes por frame)
+; Formato de um frame: 10 pares (X,Y) de words = 40 bytes
+;   par 0     : ombro, relativo a base (CX, DX)
+;   par 1     : quadril, relativo ao ombro
+;   pares 2-3 : braco esquerdo  (cotovelo, mao), relativos ao ombro
+;   pares 4-5 : braco direito   (cotovelo, mao), relativos ao ombro
+;   pares 6-7 : perna esquerda  (joelho, pe),    relativos ao quadril
+;   pares 8-9 : perna direita   (joelho, pe),    relativos ao quadril
+; A cabeca e um circulo cheio de raio 10, com centro 10 px acima do ombro.
 ;-----------------------------------------------------------------------------
 desenha_jogador:
         PUSHF
@@ -60,7 +63,7 @@ desenha_jogador:
         PUSH    AX
         PUSH    BX
 
-        ; 1. Encontra a animação correta
+        ; 1. Encontra a animacao correta
         MOV     AL, BH
         XOR     AH, AH
         SHL     AX, 1
@@ -85,17 +88,17 @@ desenha_jogador:
         ADD     DI, BX                  ; DI aponta para o frame correto
         POP     AX
 
-        ; 3. Lê Ponto 0: Offset do Ombro (relativo à base JX, JY)
+        ; 3. Le o par 0: ombro (relativo a base JX, JY)
         CALL    le_ponto_ombro
         MOV     [ombro_x], AX
         MOV     [ombro_y], BX
 
-        ; 4. Lê Ponto 1: Vetor do Quadril (relativo ao Ombro)
+        ; 4. Le o par 1: quadril (relativo ao ombro)
         CALL    le_ponto_quadril
         MOV     [quadril_x], AX
         MOV     [quadril_y], BX
 
-        ; ---- Cabeça: Raio 10, centro 10px acima do Ombro ----
+        ; ---- Cabeca: Raio 10, centro 10px acima do Ombro ----
         MOV     AX, [ombro_x]
         PUSH    AX
         MOV     AX, [ombro_y]
@@ -116,7 +119,7 @@ desenha_jogador:
         PUSH    AX
         CALL    linha_grossa
 
-        ; ---- 4 Membros (2 Braços saem do Ombro, 2 Pernas saem do Quadril) ----
+        ; ---- 4 Membros (2 Bracos saem do Ombro, 2 Pernas saem do Quadril) ----
         MOV     CX, 4
 dj_membro:
         CMP     CX, 2
@@ -126,7 +129,7 @@ dj_membro:
         MOV     BX, [quadril_y]
         JMP     dj_origem_ok
 dj_origem_ombro:
-        ; Braços (CX = 4, 3) saem do Ombro
+        ; Bracos (CX = 4, 3) saem do Ombro
         MOV     AX, [ombro_x]
         MOV     BX, [ombro_y]
 dj_origem_ok:
@@ -135,12 +138,12 @@ dj_origem_ok:
 
         PUSH    AX                      ; x1 = origem
         PUSH    BX                      ; y1
-        CALL    le_ponto_membro         ; AX,BX = articulação
+        CALL    le_ponto_membro         ; AX,BX = articulacao
         PUSH    AX                      ; x2
         PUSH    BX                      ; y2
         CALL    linha_grossa
 
-        PUSH    AX                      ; x1 = articulação
+        PUSH    AX                      ; x1 = articulacao
         PUSH    BX                      ; y1
         CALL    le_ponto_membro         ; AX,BX = extremidade
         PUSH    AX                      ; x2
@@ -158,7 +161,14 @@ dj_origem_ok:
         POPF
         RET
 
-; Auxiliares de leitura de pontos
+;-----------------------------------------------------------------------------
+; Auxiliares de desenha_jogador: leem um par (offX, offY) em [DI], aplicam o
+; espelho (negam X) e somam a origem correspondente.
+; Saida: AX = X absoluto, BX = Y absoluto, DI avancado 4 bytes.
+;   le_ponto_ombro   : origem = base (base_x, base_y)
+;   le_ponto_quadril : origem = ombro
+;   le_ponto_membro  : origem = inicio do membro (ombro ou quadril)
+;-----------------------------------------------------------------------------
 le_ponto_ombro:
         MOV     AX, [DI]
         CMP     byte [espelho], 0
@@ -196,24 +206,7 @@ lpm_sem:
         RET
 
 ;-----------------------------------------------------------------------------
-; le_ponto (uso interno de desenha_jogador)
-; Le um par (offX, offY) em [DI], aplica o espelho e soma a base.
-; Saida: AX = X absoluto, BX = Y absoluto, DI avancado 4 bytes.
-;-----------------------------------------------------------------------------
-le_ponto:
-        MOV     AX, [DI]
-        CMP     byte [espelho], 0
-        JE      lp_sem_espelho
-        NEG     AX
-lp_sem_espelho:
-        ADD     AX, [base_x]
-        MOV     BX, [DI+2]
-        ADD     BX, [base_y]
-        ADD     DI, 4
-        RET
-
-;-----------------------------------------------------------------------------
-;função cursor
+;funcao cursor
 ; Parametros:
 ; 	DH = linha (0-29) e  DL = coluna  (0-79)
 cursor:
@@ -238,7 +231,7 @@ cursor:
 		POPf
 		RET
 ;-----------------------------------------------------------------------------
-;função caracter escrito na posição do cursor
+;funcao caracter escrito na posicao do cursor
 ; Parametros:
 ; 	AL = caracter a ser escrito
 ; 	cor definida na variavel cor
@@ -330,7 +323,7 @@ limpa_tela:
         RET
 
 ;-----------------------------------------------------------------------------
-;função plot_xy
+;funcao plot_xy
 ; Parametros:
 ;	PUSH x; PUSH y; CALL plot_xy;  (x<639, y<479)
 ; 	cor definida na variavel cor
@@ -361,7 +354,7 @@ plot_xy:
 		POP		BP
 		RET		4
 ;-----------------------------------------------------------------------------
-;função circle
+;funcao circle
 ; Parametros:
 ;	PUSH xc; PUSH yc; PUSH r; CALL circle;  (xc+r<639,yc+r<479)e(xc-r>0,yc-r>0)
 ; 	cor definida na variavel cor
@@ -406,16 +399,16 @@ circle:
 		
 	MOV		DI,CX
 	SUB		DI,1	 				;DI = r-1
-	MOV		DX,0  					;DX será a variável x. CX é a variavel y
+	MOV		DX,0  					;DX sera a variavel x. CX e a variavel y
 	
-;Aqui em cima a lógica foi invertida, 1-r => r-1 e as comparações passaram a 
+;Aqui em cima a logica foi invertida, 1-r => r-1 e as comparacoes passaram a 
 ; ser JL => JG, assim garante valores positivos para d
 
 stay:								;LOOP
 	MOV		SI,DI
 	CMP		SI,0
-	JG		inf       				;caso d for menor que 0, seleciona pixel superior (não  SALta)
-	MOV		SI,DX					;o JL é importante porque trata-se de conta com sinal
+	JG		inf       				;caso d for menor que 0, seleciona pixel superior (nao  SALta)
+	MOV		SI,DX					;o JL e importante porque trata-se de conta com sinal
 	SAL		SI,1					;multiplica por dois (shift arithmetic left)
 	ADD		SI,3
 	ADD		DI,SI     				;nesse ponto d = d+2*DX+3
@@ -444,7 +437,7 @@ plotar:
 	MOV		SI,BX
 	SUB		SI,CX
 	PUSH    SI						;coloca a ordenada yc-y na pilha
-	CALL plot_xy					;toma conta do s�timo octante
+	CALL plot_xy					;toma conta do setimo octante
 	MOV		SI,AX
 	ADD		SI,CX
 	PUSH    SI						;coloca a abcisa xc+y na pilha
@@ -489,8 +482,8 @@ plotar:
 	CALL plot_xy					;toma conta do quarto octante
 	
 	CMP		CX,DX
-	JB		fim_circle  			;se CX (y) está abaixo de DX (x), termina     
-	JMP		stay					;se CX (y) está acima de DX (x), continua no LOOP
+	JB		fim_circle  			;se CX (y) esta abaixo de DX (x), termina     
+	JMP		stay					;se CX (y) esta acima de DX (x), continua no LOOP
 	
 fim_circle:
 	POP		DI
@@ -503,7 +496,7 @@ fim_circle:
 	POP		BP
 	RET		6
 ;-----------------------------------------------------------------------------
-;função full_circle
+;funcao full_circle
 ; Parametros:
 ;	PUSH xc; PUSH yc; PUSH r; CALL full_circle;  (xc+r<639,yc+r<479)e(xc-r>0,yc-r>0)
 ; 	cor definida na variavel cor					  
@@ -534,16 +527,16 @@ full_circle:
 		
 	MOV		DI,CX
 	SUB		DI,1	 			;DI = r-1
-	MOV		DX,0  				;DX será a variável x. CX é a variavel y
+	MOV		DX,0  				;DX sera a variavel x. CX e a variavel y
 	
-;aqui em cima a lógica foi invertida, 1-r => r-1 e as comparações passaram a ser
+;aqui em cima a logica foi invertida, 1-r => r-1 e as comparacoes passaram a ser
 ;JL => JG, assimm garante valores positivos para d
 
 stay_full:						;LOOP
 	MOV		SI,DI
 	CMP		SI,0
-	JG		inf_full       		;caso d for menor que 0, seleciona pixel superior (não  salta)
-	MOV		SI,DX				;o JL é importante porque trata-se de conta com sinal
+	JG		inf_full       		;caso d for menor que 0, seleciona pixel superior (nao  salta)
+	MOV		SI,DX				;o JL e importante porque trata-se de conta com sinal
 	SAL		SI,1				;multiplica por doi (shift arithmetic left)
 	ADD		SI,3
 	ADD		DI,SI     			;nesse ponto d = d+2*DX+3
@@ -616,8 +609,8 @@ plotar_full:
 	CALL	line
 	
 	CMP		CX,DX
-	JB		fim_full_circle  	;se CX (y) está abaixo de DX (x), termina     
-	JMP		stay_full			;se CX (y) está acima de DX (x), continua no LOOP
+	JB		fim_full_circle  	;se CX (y) esta abaixo de DX (x), termina     
+	JMP		stay_full			;se CX (y) esta acima de DX (x), continua no LOOP
 	
 fim_full_circle:
 	POP		DI
@@ -631,11 +624,11 @@ fim_full_circle:
 	RET		6
 
 ;-----------------------------------------------------------------------------
-;função linha
-; Parâmetros:
+;funcao linha
+; Parametros:
 ;	PUSH x1; PUSH y1; PUSH x2; PUSH y2; CALL line;  (x<639, y<479)
-; Função linha_grossa
-; Parâmetros:
+; Funcao linha_grossa
+; Parametros:
 ;   PUSH x1; PUSH y1; PUSH x2; PUSH y2; CALL linha_grossa;
 linha_grossa:
         PUSH    BP
@@ -652,16 +645,16 @@ linha_grossa:
         MOV     DX,[BP+4]       ; DX = y2
 
         ; ----------------------------------------------------
-        ; 1º Traço: A linha central (coordenadas originais)
+        ; 1o Traco: A linha central (coordenadas originais)
         ; ----------------------------------------------------
         PUSH    AX              ; x1
         PUSH    BX              ; y1
         PUSH    CX              ; x2
         PUSH    DX              ; y2
-        CALL    line            ; A função line consome esses 4 PUSHes
+        CALL    line            ; A funcao line consome esses 4 PUSHes
 
         ; ----------------------------------------------------
-        ; 2º Traço: Linha deslocada 1 pixel para a direita (+1 no X)
+        ; 2o Traco: Linha deslocada 1 pixel para a direita (+1 no X)
         ; ----------------------------------------------------
         INC     AX              ; x1 + 1
         INC     CX              ; x2 + 1
@@ -673,7 +666,7 @@ linha_grossa:
         CALL    line            ; Consome os PUSHes
 
         ; ----------------------------------------------------
-        ; 3º Traço: Linha deslocada 1 pixel para a esquerda (-1 do original)
+        ; 3o Traco: Linha deslocada 1 pixel para a esquerda (-1 do original)
         ; ----------------------------------------------------
         SUB     AX, 2           ; (x1 + 1) - 2 = x1 - 1
         SUB     CX, 2           ; (x2 + 1) - 2 = x2 - 1
@@ -684,7 +677,7 @@ linha_grossa:
         PUSH    DX              ; y2 (mantido)
         CALL    line            ; Consome os PUSHes
 
-        ; Restaura os registradores originais da função chamadora
+        ; Restaura os registradores originais da funcao chamadora
         POP     DX
         POP     CX
         POP     BX
@@ -693,7 +686,7 @@ linha_grossa:
         RET     8               ; Limpa os 8 bytes empilhados ao chamar linha_grossa
 
 ;-----------------------------------------------------------------------------
-;função line
+;funcao line
 ; Parametros:
 ;	PUSH x1; PUSH y1; PUSH x2; PUSH y2; CALL line;  (x<639, y<479)
 line:
@@ -731,7 +724,7 @@ line31:	INC		BX
 		JMP		line3
 ;deltAX <>0
 line1:
-;Comparar módulos de deltax e deltay sabendo que CX>AX
+;Comparar modulos de deltax e deltay sabendo que CX>AX
 	; CX > AX
 		PUSH	CX
 		SUB		CX,AX
@@ -858,7 +851,7 @@ cor             DB      15          ; cor corrente das primitivas (branco intens
 deltAX          DW      0           ; variaveis de trabalho da rotina line
 deltay          DW      0
 
-base_x          DW      0           ; variáveis de trabalho de desenha_jogador
+base_x          DW      0           ; variaveis de trabalho de desenha_jogador
 base_y          DW      0
 ombro_x         DW      0
 ombro_y         DW      0
@@ -869,7 +862,7 @@ membro_base_y   DW      0
 espelho         DB      0
 
 
-; Tabela de ponteiros para as animações (cada endereço ocupa 1 word / 2 bytes)
+; Tabela de ponteiros para as animacoes (cada endereco ocupa 1 word / 2 bytes)
 tabela_animacoes:
         dw      v_idle      ; Estado 0
         dw      v_anda      ; Estado 1
@@ -878,14 +871,16 @@ tabela_animacoes:
         dw      v_abaixa    ; Estado 4
 
 ; =============================================================================
-; Animação Estacionária (6 Frames)
-; Cada frame: 8 pares (X,Y) = 32 bytes.
+; Animacao parada (estado 0) - 2 frames definidos
+; Cada frame: 10 pares (X,Y) = 40 bytes (formato em desenha_jogador).
+; Obs.: limite_frames (jogador.asm) usa so o frame 0; o frame 1 ("respirando")
+; esta pronto, mas nao e exibido.
 ; =============================================================================
 v_idle:
     ; --- Frame 0 ---
     dw   0,   0,   0, -46     ; Ombro na base, Quadril 46px abaixo (reto)
-    dw -20, -20,   3, -17     ; Braço Esq
-    dw  15, -15,  27,   4     ; Braço Dir
+    dw -20, -20,   3, -17     ; Braco Esq
+    dw  15, -15,  27,   4     ; Braco Dir
     dw -15, -25, -22, -38     ; Perna Esq (relativa ao quadril)
     dw  15, -25,  22, -38     ; Perna Dir (relativa ao quadril)
 
@@ -897,52 +892,52 @@ v_idle:
     dw  15, -24,  22, -38
 
 ; =============================================================================
-; Animação de Caminhada (10 Frames - Pernas relativas ao Quadril)
+; Animacao de caminhada (estado 1) - 10 frames, ciclica
 ; =============================================================================
 v_anda:
-    ; --- Frame 0 (Perna Dir frente, Perna Esq esticada atrás) ---
+    ; --- Frame 0 (Perna Dir frente, Perna Esq esticada atras) ---
     dw   0,   0,   0, -46     ; Ombro na base, Quadril 46px abaixo
-    dw -20, -20,   3, -17     ; Braço Esq 
-    dw  15, -15,  27,   4     ; Braço Dir 
+    dw -20, -20,   3, -17     ; Braco Esq 
+    dw  15, -15,  27,   4     ; Braco Dir 
     dw -15, -18, -24, -38     ; Perna Esq
     dw  15, -18,  24, -38     ; Perna Dir
 
-    ; --- Frame 1 (Transição) ---
+    ; --- Frame 1 (Transicao) ---
     dw   0,   0,   0, -46
     dw -19, -21,   4, -18
     dw  14, -16,  26,   3
     dw -10, -16, -10, -29
     dw  10, -20,  12, -38
 
-    ; --- Frame 2 (Cruzamento - Perna do ar passa pela perna do chão) ---
+    ; --- Frame 2 (Cruzamento - Perna do ar passa pela perna do chao) ---
     dw   0,   0,   0, -46
     dw -18, -22,   5, -19
     dw  13, -17,  25,   2
     dw  10, -12,   5, -24
     dw   5, -21,   0, -38
 
-    ; --- Frame 3 (Alcançando a frente) ---
+    ; --- Frame 3 (Alcancando a frente) ---
     dw   0,   0,   0, -46
     dw -19, -21,   4, -18
     dw  14, -16,  26,   3
     dw  18, -16,  15, -29
     dw  -5, -20, -12, -38
 
-    ; --- Frame 4 (Pré-contato) ---
+    ; --- Frame 4 (Pre-contato) ---
     dw   0,   0,   0, -46
     dw -20, -20,   3, -17
     dw  15, -15,  27,   4
     dw  17, -17,  22, -34
     dw -15, -18, -24, -38
 
-    ; --- Frame 5 (Inversão de Passo - Perna Esq frente, Perna Dir atrás) ---
+    ; --- Frame 5 (Inversao de Passo - Perna Esq frente, Perna Dir atras) ---
     dw   0,   0,   0, -46
     dw -21, -19,   2, -16
     dw  16, -14,  28,   5
     dw  15, -18,  24, -38
     dw -15, -18, -24, -38
 
-    ; --- Frame 6 (Transição 2) ---
+    ; --- Frame 6 (Transicao 2) ---
     dw   0,   0,   0, -46
     dw -22, -18,   1, -15
     dw  17, -13,  29,   6
@@ -956,14 +951,14 @@ v_anda:
     dw   5, -21,   0, -38
     dw  10, -12,   5, -24
 
-    ; --- Frame 8 (Alcançando a frente 2) ---
+    ; --- Frame 8 (Alcancando a frente 2) ---
     dw   0,   0,   0, -46
     dw -22, -18,   1, -15
     dw  17, -13,  29,   6
     dw  -5, -20, -12, -38
     dw  18, -16,  15, -29
 
-    ; --- Frame 9 (Pré-contato 2) ---
+    ; --- Frame 9 (Pre-contato 2) ---
     dw   0,   0,   0, -46
     dw -21, -19,   2, -16
     dw  16, -14,  28,   5
@@ -971,7 +966,9 @@ v_anda:
     dw  17, -17,  22, -34
 
 ; =============================================================================
-; Animação de Soco (10 Frames - Pernas relativas ao Quadril)
+; Animacao de soco (estado 2) - 10 frames
+; O dano e verificado no frame 2 (FRAME_IMPACTO_SOCO em const.inc), primeiro
+; frame do braco totalmente estendido (mao em X = +52).
 ; =============================================================================
 v_soco:
     ; --- Frame 0: Startup 1 ---
@@ -1019,7 +1016,7 @@ v_soco:
     dw -16, -25, -23, -38
     dw  16, -25,  23, -38
 
-    ; --- Frame 9: Retorno à guarda ---
+    ; --- Frame 9: Retorno a guarda ---
     dw   0,   0,   0, -46
     dw -20, -20,   3, -17
     dw  12, -15,  24,  -2
@@ -1027,32 +1024,35 @@ v_soco:
     dw  15, -25,  22, -38
 
 ; =============================================================================
-; Animação de Rasteira Baixa (10 Frames - Ajustada sem apagar o chão)
-; Margem do Chão: Ponto mais baixo fica em Y=74 (preserva a arena em Y=70)
+; Animacao de chute (estado 3): rasteira baixa - 10 frames
+; O ponto mais baixo fica em Y = 74, para nao apagar o chao da arena (Y = 70).
+; O dano e verificado no frame 3 (FRAME_IMPACTO_CHUTE em const.inc), primeiro
+; frame da perna totalmente estendida (pe em X = +58). Por ser rasteira, a
+; defesa contra o chute e pular.
 ; =============================================================================
 v_chute:
     ; --- Frame 0: Startup 1 (Corpo desce levemente) ---
     dw   0, -12,   0, -42     ; Ombro em -12px
-    dw -18, -15,  -5, -10     ; Braço Esq
-    dw  12, -12,  22,  -5     ; Braço Dir
+    dw -18, -15,  -5, -10     ; Braco Esq
+    dw  12, -12,  22,  -5     ; Braco Dir
     dw -15, -18, -22, -34     ; Perna Esq
     dw  12, -18,  18, -34     ; Perna Dir
 
-    ; --- Frame 1: Startup 2 (Queda rápida, mão busca o chão) ---
+    ; --- Frame 1: Startup 2 (Queda rapida, mao busca o chao) ---
     dw   0, -30,  -5, -25     ; Ombro em -30px
-    dw -15, -18, -22, -28     ; Braço Esq
-    dw  10, -10,  20,  -5     ; Braço Dir
+    dw -15, -18, -22, -28     ; Braco Esq
+    dw  10, -10,  20,  -5     ; Braco Dir
     dw -15, -12, -22, -24     ; Perna Esq
     dw   8, -10,  15, -18     ; Perna Dir
 
     ; --- Frame 2: Startup 3 (Prestes a atingir a rasteira) ---
     dw   0, -45,  -8, -16     ; Ombro em -45px
-    dw -12, -16, -22, -30     ; Braço Esq
-    dw   8, -10,  18, -14     ; Braço Dir
+    dw -12, -16, -22, -30     ; Braco Esq
+    dw   8, -10,  18, -14     ; Braco Dir
     dw -16, -10,  -8, -17     ; Perna Esq
     dw  20,  -6,  42, -13     ; Perna Dir
 
-    ; --- Frames 3 a 6: PERMANÊNCIA (POSTURA AJUSTADA - MARGEM DE 4PX DO CHÃO) ---
+    ; --- Frames 3 a 6: PERMANENCIA (POSTURA AJUSTADA - MARGEM DE 4PX DO CHAO) ---
     ; Frame 3 (Active 1)
     dw 0,-50, -10,-14,  -12,-14,-22,-30,  8,-10,18,-16,  -18,-12,-6,-18,  28,-8,58,-17
     ; Frame 4 (Active 2)
@@ -1062,10 +1062,10 @@ v_chute:
     ; Frame 6 (Active 4)
     dw 0,-50, -10,-14,  -12,-14,-22,-30,  8,-10,18,-16,  -18,-12,-6,-18,  28,-8,58,-17
 
-    ; --- Frame 7: Recovery 1 (Perna recolhe, tronco começa a subir) ---
+    ; --- Frame 7: Recovery 1 (Perna recolhe, tronco comeca a subir) ---
     dw   0, -35,  -8, -22     ; Ombro sobe para -35px
-    dw -12, -15, -22, -25     ; Mão descola do chão
-    dw  10, -10,  20,  -8     ; Braço Dir
+    dw -12, -15, -22, -25     ; Mao descola do chao
+    dw  10, -10,  20,  -8     ; Braco Dir
     dw -16, -12, -18, -25     ; Perna Esq
     dw  20, -12,  35, -23     ; Perna Dir
 
@@ -1077,36 +1077,38 @@ v_chute:
     dw  14, -18,  20, -32
 
     ; --- Frame 9: Recovery 3 (Retorno ao Idle) ---
-    dw   0,   0,   0, -46     ; Ombro e quadril na posição padrão
-    dw -20, -20,   3, -17     ; Braço Esq
-    dw  15, -15,  27,   4     ; Braço Dir
+    dw   0,   0,   0, -46     ; Ombro e quadril na posicao padrao
+    dw -20, -20,   3, -17     ; Braco Esq
+    dw  15, -15,  27,   4     ; Braco Dir
     dw -15, -25, -22, -38     ; Perna Esq
     dw  15, -25,  22, -38     ; Perna Dir
 
 ; =============================================================================
-; Animação Abaixando (Estado 4 - 3 Frames rápidos de descida, trava no Frame 2)
-; Pés sempre fixos em Y=72 (-84px da base Y_CHAO=156).
+; Animacao abaixando (estado 4) - 3 frames de descida; enquanto a tecla de
+; abaixar estiver pressionada, fica travada no frame 2.
+; Pes sempre fixos em Y = 72 (-84 px da base Y_CHAO = 156).
+; Abaixado, o lutador nao e atingido por socos.
 ; =============================================================================
 v_abaixa:
-    ; --- Frame 0: Início da descida (Ombro -12px, Joelhos começam a dobrar) ---
+    ; --- Frame 0: Inicio da descida (Ombro -12px, Joelhos comecam a dobrar) ---
     dw   0, -12,   0, -40     ; Ombro -12px (Y=144), Quadril -40px (Y=104)
-    dw -18, -18,   3, -14     ; Braço Esq
-    dw  14, -14,  25,   4     ; Braço Dir
-    dw -16, -18, -21, -32     ; Perna Esq (pé em 104-32 = 72)
-    dw  16, -18,  21, -32     ; Perna Dir (pé em 104-32 = 72)
+    dw -18, -18,   3, -14     ; Braco Esq
+    dw  14, -14,  25,   4     ; Braco Dir
+    dw -16, -18, -21, -32     ; Perna Esq (pe em 104-32 = 72)
+    dw  16, -18,  21, -32     ; Perna Dir (pe em 104-32 = 72)
 
     ; --- Frame 1: Meio da descida (Ombro -24px, Guarda fechando) ---
     dw   0, -24,   0, -35     ; Ombro -24px (Y=132), Quadril -35px (Y=97)
-    dw -17, -16,   4, -11     ; Braço Esq
-    dw  13, -13,  23,   4     ; Braço Dir
-    dw -17, -12, -20, -25     ; Perna Esq (pé em 97-25 = 72)
-    dw  17, -12,  20, -25     ; Perna Dir (pé em 97-25 = 72)
+    dw -17, -16,   4, -11     ; Braco Esq
+    dw  13, -13,  23,   4     ; Braco Dir
+    dw -17, -12, -20, -25     ; Perna Esq (pe em 97-25 = 72)
+    dw  17, -12,  20, -25     ; Perna Dir (pe em 97-25 = 72)
 
     ; --- Frame 2: Totalmente abaixado (Ombro -36px, permanece aqui) ---
     dw   0, -36,   0, -30     ; Ombro -36px (Y=120), Quadril -30px (Y=90)
-    dw -16, -14,   4,  -8     ; Braço Esq (em guarda baixa)
-    dw  12, -12,  22,   4     ; Braço Dir (protegendo o rosto)
-    dw -18,  -6, -20, -18     ; Perna Esq (joelho dobrado, pé em 90-18 = 72)
-    dw  18,  -6,  20, -18     ; Perna Dir (joelho dobrado, pé em 90-18 = 72)
+    dw -16, -14,   4,  -8     ; Braco Esq (em guarda baixa)
+    dw  12, -12,  22,   4     ; Braco Dir (protegendo o rosto)
+    dw -18,  -6, -20, -18     ; Perna Esq (joelho dobrado, pe em 90-18 = 72)
+    dw  18,  -6,  20, -18     ; Perna Dir (joelho dobrado, pe em 90-18 = 72)
 
 

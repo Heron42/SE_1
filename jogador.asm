@@ -127,8 +127,9 @@ tecla_ativa:
 ; Regras:
 ;   - durante um soco ou chute os comandos ficam bloqueados ate o fim do golpe;
 ;   - abaixado o lutador nao anda, mas pode atacar;
-;   - se nenhuma tecla for usada, volta ao estado parado (idle).
-; Ao final, CL = numero de teclas de acao usadas neste tique.
+;   - se nenhuma tecla for usada, volta ao estado parado (idle);
+;   - segurar a tecla de soco/chute repete o golpe ao fim de cada animacao.
+; Preserva todos os registradores.
 ; -----------------------------------------------------------------------------
 controla_jogador:
         PUSH    AX
@@ -504,7 +505,8 @@ tecla_dir       DB      0
 tecla_soco      DB      0
 tecla_chute     DB      0
 
-; Numero de frames de cada estado: idle, andar, soco, chute, abaixar
+; Numero de frames de cada estado: parado, andar, soco, chute, abaixar.
+; O estado parado usa so o frame 0 (v_idle tambem tem um frame 1, nao usado).
 limite_frames   DB      1, 10, 10, 10, 3
 
 ; ----------------------------------------------------------------------------

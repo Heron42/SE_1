@@ -505,16 +505,15 @@ str_ctrl_j1     DB      'J1: A/D andar  W pular  S abaixar  R chute  T soco', 0
 str_ctrl_j2     DB      'J2: setas andar/pular/abaixar  N chute  M soco', 0
 str_iniciar     DB      'ENTER: iniciar a luta    P: pausa    Q: sair', 0
 
-;                        0123456789...
-str_round       DB      'ROUND n', 0
+; Nos textos abaixo, o "n" (e o "x"/"y" do placar) e substituido em tempo de
+; execucao pelo digito correspondente; o indice usado esta indicado ao lado.
+str_round       DB      'ROUND n', 0                    ; n = indice 6
 str_lutem       DB      'LUTEM!', 0
 str_nocaute     DB      'NOCAUTE!', 0
 str_tempo       DB      'TEMPO ESGOTADO!', 0
-str_vence_round DB      'JOGADOR n VENCEU O ROUND', 0
+str_vence_round DB      'JOGADOR n VENCEU O ROUND', 0   ; n = indice 8
 
 str_game_over   DB      'GAME OVER', 0
-str_campeao     DB      'JOGADOR n VENCEU A PARTIDA!', 0
-;                        0         1         2
-;                        0123456789012345678901234
-str_placar      DB      'Placar final: J1 x - y J2', 0
+str_campeao     DB      'JOGADOR n VENCEU A PARTIDA!', 0 ; n = indice 8
+str_placar      DB      'Placar final: J1 x - y J2', 0  ; x = 17, y = 21
 str_nova        DB      'Nova partida? (Y/N)', 0
