@@ -1,32 +1,6 @@
-; =============================================================================
 ; trabalho.asm  -  Jogo de Luta em Assembly 8086 (modulo principal)
-; -----------------------------------------------------------------------------
-; Responsabilidades deste modulo:
-;   - inicializacao (segmentos, pilha, ISRs, modo de video)
-;   - maquina de estados do jogo:
-;       SELECAO -> [ROUND -> LUTA -> FIM DO ROUND]... -> GAME OVER
-;                                                          |  Y: nova partida
-;                                                          |  N: encerra
-;   - laco principal da luta, sincronizado com a INT 8h
-;   - restauracao do sistema na saida (vetores 8h/9h e modo de video)
-;
-; Organizacao dos modulos:
-;   trabalho.asm : inicializacao, fluxo do jogo e laco principal (este)
-;   teclado.asm  : ISR da INT 9h, tabela de estado e fila de eventos
-;   tempo.asm    : ISR da INT 8h, tique do jogo e cronometro do round
-;   jogador.asm  : controles, movimento, pulo, animacao e desenho dos lutadores
-;   colisao.asm  : deteccao de golpes validos
-;   logica.asm   : fim de round/partida, desempate, pausa (P) e saida (Q)
-;   hud.asm      : arena, barras de energia, rounds, tempo e mensagens
-;   telas.asm    : selecao de lutadores, avisos de round e Game Over
-;   graficos.asm : primitivas graficas (modo 12h) e desenho do boneco
-;
-; Cada modulo declara, no inicio, as constantes (EQU) que usa.
-;
-; Montagem: MAKE.BAT (padrao da disciplina) ou Makefile. Ver README.md.
-; =============================================================================
 
-; ------------------------------- Simbolos externos ----------------------------
+; Simbolos externos
 extern  instala_teclado             ; teclado.asm
 extern  restaura_teclado
 extern  limpa_eventos
@@ -61,10 +35,9 @@ extern  anuncia_round
 extern  anuncia_fim_round
 extern  tela_game_over
 
-; =============================================================================
 segment code public class=CODE
 ..start:
-; ---------------------------------------------- Registradores de segmento/pilha
+; Registradores de segmento/pilha
         MOV     AX, data
         MOV     DS, AX
         MOV     AX, stack
@@ -72,19 +45,17 @@ segment code public class=CODE
         MOV     SP, stacktop
         CLD
 
-; ---------------------------------------------- Modo de video
+; Modo de video
         MOV     AH, 0Fh                     ; le o modo de video atual
         INT     10h
         MOV     [modo_anterior], AL         ; (restaurado na saida)
 
-; ---------------------------------------------- ISRs de teclado e relogio
+; ISRs de teclado e relogio
         MOV     byte [relogio_ativo], 0
         CALL    instala_teclado
         CALL    instala_relogio
 
-; =============================================================================
 ; NOVA PARTIDA: tela de selecao de lutadores
-; =============================================================================
 nova_partida:
         MOV     byte [relogio_ativo], 0
         MOV     byte [sair_flag], 0
@@ -95,9 +66,7 @@ nova_partida:
 np_ok:
         CALL    inicia_partida              ; placar 0 x 0
 
-; =============================================================================
 ; NOVO ROUND
-; =============================================================================
 novo_round:
         MOV     byte [relogio_ativo], 0     ; cronometro parado ate o "LUTEM!"
         CALL    reseta_lutadores
@@ -121,11 +90,8 @@ nr_ok:
         MOV     [ultimo_tique], AX
         MOV     byte [relogio_ativo], 1     ; o tempo do round comeca a correr
 
-; =============================================================================
 ; LACO PRINCIPAL DA LUTA
-; Roda uma vez a cada tique da INT 8h (~55 ms, 18,2 vezes por segundo).
-; Entre tiques o processador fica em HLT: nao ha atraso por laco de software.
-; =============================================================================
+; Roda uma vez a cada tique da INT 8h
 loop_jogo:
         MOV     AX, [tique_jogo]
         CMP     AX, [ultimo_tique]
@@ -135,7 +101,7 @@ loop_jogo:
 lj_tique:
         MOV     [ultimo_tique], AX
 
-        ; ---- 1. Comandos pontuais: P (pausa) e Q/ESC (sair) ---------------
+        ; 1. Comandos pontuais: P (pausa) e Q/ESC (sair)
         CALL    trata_eventos
         CMP     byte [sair_flag], 0
         JE      lj_controles
@@ -146,10 +112,10 @@ lj_controles:
         MOV     AX, [tique_jogo]
         MOV     [ultimo_tique], AX
 
-        ; ---- 2. Teclas mantidas pressionadas (tabela de estado) ------------
+        ; 2. Teclas mantidas pressionadas
         CALL    le_controles
 
-        ; ---- 3. Fisica do pulo (gravidade e pouso) -------------------------
+        ; 3. Fisica do pulo
         MOV     SI, jogador1
         MOV     DI, jogador2
         CALL    fisica_jogador
@@ -157,16 +123,16 @@ lj_controles:
         MOV     DI, jogador1
         CALL    fisica_jogador
 
-        ; ---- 4. Vira os lutadores um para o outro --------------------------
+        ; 4. Vira os lutadores um para o outro 
         CALL    atualiza_direcao
 
-        ; ---- 5. Avanca os frames de animacao -------------------------------
+        ; 5. Avanca os frames de animacao 
         MOV     SI, jogador1
         CALL    atualiza_animacao
         MOV     SI, jogador2
         CALL    atualiza_animacao
 
-        ; ---- 6. Golpes validos ---------------------------------------------
+        ; 6. Golpes validos 
         MOV     SI, jogador1                ; J1 atacando J2
         MOV     DI, jogador2
         CALL    verifica_golpe
@@ -174,23 +140,23 @@ lj_controles:
         MOV     DI, jogador1
         CALL    verifica_golpe
 
-        ; ---- 7. Cronometro na tela -----------------------------------------
+        ; 7. Cronometro na tela 
         CALL    desenha_tempo
 
-        ; ---- 8. Redesenha os lutadores apenas se algo mudou ----------------
+        ; 8. Redesenha os lutadores apenas se algo mudou 
         CALL    houve_mudanca               ; AL = 1 se precisa redesenhar
         CMP     AL, 0
         JE      lj_fim_round
-        MOV     SI, jogador1                ; apaga os dois na posicao antiga...
+        MOV     SI, jogador1                ; apaga os dois na posicao antiga
         CALL    apaga_jogador
         MOV     SI, jogador2
         CALL    apaga_jogador
-        MOV     SI, jogador1                ; ...e redesenha os dois na nova
-        CALL    pinta_jogador               ; (redesenhar ambos evita que um
-        MOV     SI, jogador2                ;  apague um pedaco do outro)
+        MOV     SI, jogador1                ; redesenha os dois na nova
+        CALL    pinta_jogador               
+        MOV     SI, jogador2                
         CALL    pinta_jogador
 
-        ; ---- 9. Fim do round? ----------------------------------------------
+        ; 9. Fim do round?
 lj_fim_round:
         CALL    verifica_fim_round
         CMP     byte [round_acabou], 0
@@ -209,19 +175,14 @@ lj_proximo:
         JNE     game_over
         JMP     novo_round
 
-; =============================================================================
 ; GAME OVER: Y = nova partida, N = encerra
-; =============================================================================
 game_over:
         CALL    tela_game_over              ; AL = 1 (Y) ou 0 (N / Q confirmado)
         CMP     AL, 1
         JNE     fim
         JMP     nova_partida
 
-; =============================================================================
 ; fim: restaura vetores e modo de video e devolve o controle ao DOS.
-; Unico ponto de saida do programa (Game Over -> N, ou Q/ESC confirmado).
-; =============================================================================
 fim:
         MOV     byte [relogio_ativo], 0
         CALL    restaura_relogio            ; vetor original da INT 8h
@@ -234,13 +195,11 @@ fim:
         MOV     AX, 4C00h                   ; retorna ao DOS
         INT     21h
 
-; =============================================================================
 segment data public class=DATA
 
 modo_anterior   DB      0           ; modo de video ao iniciar o programa
 ultimo_tique    DW      0           ; ultimo tique processado pelo laco
 
-; =============================================================================
 segment stack stack
         resb    2048
 stacktop:

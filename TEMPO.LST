@@ -22,226 +22,108 @@
     22                                  ;   tique_jogo (DW), segundos (DW), relogio_ativo (DB)
     23                                  ; =============================================================================
     24                                  
-    25                                  %include "const.inc"
-    26                              <1> ; =============================================================================
-    27                              <1> ; const.inc  -  Constantes compartilhadas por todos os modulos do jogo
-    28                              <1> ; -----------------------------------------------------------------------------
-    29                              <1> ; Contem apenas EQUs (nao gera codigo nem dados). Incluido com
-    30                              <1> ;   %include "const.inc"
-    31                              <1> ; em cada modulo .asm. Qualquer alteracao aqui exige remontar todos os
-    32                              <1> ; modulos (o Makefile ja declara essa dependencia).
-    33                              <1> ; =============================================================================
-    34                              <1> 
-    35                              <1> ; ------------------------------- Hardware -------------------------------------
-    36                              <1> KB_DATA         EQU     60h         ; porta de dados do teclado (8042)
-    37                              <1> KB_CTL          EQU     61h         ; porta de controle do teclado (8255 PB)
-    38                              <1> PICTRL          EQU     20h         ; porta de comando do PIC 8259
-    39                              <1> EOI             EQU     20h         ; comando End Of Interrupt
-    40                              <1> INT_TEC         EQU     09h         ; interrupcao de hardware do teclado (IRQ1)
-    41                              <1> INT_CLK         EQU     08h         ; interrupcao de hardware do 8253 (IRQ0)
-    42                              <1> 
-    43                              <1> ; ------------------------------- Scan codes (make) ----------------------------
-    44                              <1> TEC_ESC         EQU     01h
-    45                              <1> TEC_Q           EQU     10h
-    46                              <1> TEC_W           EQU     11h
-    47                              <1> TEC_R           EQU     13h
-    48                              <1> TEC_T           EQU     14h
-    49                              <1> TEC_Y           EQU     15h
-    50                              <1> TEC_P           EQU     19h
-    51                              <1> TEC_ENTER       EQU     1Ch
-    52                              <1> TEC_A           EQU     1Eh
-    53                              <1> TEC_S           EQU     1Fh
-    54                              <1> TEC_D           EQU     20h
-    55                              <1> TEC_N           EQU     31h
-    56                              <1> TEC_M           EQU     32h
-    57                              <1> TEC_CIMA        EQU     48h         ; seta para cima   (chega apos o prefixo E0h)
-    58                              <1> TEC_ESQ         EQU     4Bh         ; seta esquerda    (apos E0h)
-    59                              <1> TEC_DIR         EQU     4Dh         ; seta direita     (apos E0h)
-    60                              <1> TEC_BAIXO       EQU     50h         ; seta para baixo  (apos E0h)
-    61                              <1> 
-    62                              <1> ; ------------------------------- Cores (paleta padrao VGA) --------------------
-    63                              <1>                                     ; I R G B
-    64                              <1> preto           EQU     0           ; 0 0 0 0
-    65                              <1> azul            EQU     1           ; 0 0 0 1
-    66                              <1> verde           EQU     2           ; 0 0 1 0
-    67                              <1> cyan            EQU     3           ; 0 0 1 1
-    68                              <1> vermelho        EQU     4           ; 0 1 0 0
-    69                              <1> magenta         EQU     5           ; 0 1 0 1
-    70                              <1> marrom          EQU     6           ; 0 1 1 0
-    71                              <1> branco          EQU     7           ; 0 1 1 1
-    72                              <1> cinza           EQU     8           ; 1 0 0 0
-    73                              <1> azul_claro      EQU     9           ; 1 0 0 1
-    74                              <1> verde_claro     EQU     10          ; 1 0 1 0
-    75                              <1> cyan_claro      EQU     11          ; 1 0 1 1
-    76                              <1> rosa            EQU     12          ; 1 1 0 0
-    77                              <1> magenta_claro   EQU     13          ; 1 1 0 1
-    78                              <1> amarelo         EQU     14          ; 1 1 1 0
-    79                              <1> branco_intenso  EQU     15          ; 1 1 1 1
-    80                              <1> 
-    81                              <1> ; ------------------------------- Arena e HUD ----------------------------------
-    82                              <1> ; Coordenadas no sistema de plot_xy: Y = 0 embaixo, Y = 479 em cima.
-    83                              <1> ARENA_ESQ       EQU     10
-    84                              <1> ARENA_DIR       EQU     629
-    85                              <1> ARENA_BAIXO     EQU     70          ; chao
-    86                              <1> ARENA_TOPO      EQU     420         ; acima disso fica o HUD
-    87                              <1> 
-    88                              <1> BARRA_Y_BAIXO   EQU     440         ; barras de energia
-    89                              <1> BARRA_Y_TOPO    EQU     460
-    90                              <1> BARRA_P1_X      EQU     20          ; J1: X = 20..219
-    91                              <1> BARRA_P2_X      EQU     420         ; J2: X = 420..619
-    92                              <1> LARG_BLOCO      EQU     20          ; 1 ponto de energia = 20 px de barra
-    93                              <1> 
-    94                              <1> ; Linhas de texto (modo 12h: 30 linhas x 80 colunas, celula 8x16)
-    95                              <1> LIN_TEMPO       EQU     1           ; cronometro (centro do HUD)
-    96                              <1> COL_TEMPO       EQU     38
-    97                              <1> LIN_MSG         EQU     6           ; mensagens no centro da arena (acima do pulo)
-    98                              <1> LIN_CONFIRMA    EQU     27          ; confirmacao de saida (abaixo do chao)
-    99                              <1> 
-   100                              <1> ; ------------------------------- Regras do jogo -------------------------------
-   101                              <1> ENERGIA_INICIAL EQU     10          ; golpes validos para perder o round
-   102                              <1> ROUNDS_VITORIA  EQU     2           ; melhor de tres
-   103                              <1> TEMPO_ROUND     EQU     180         ; 3 minutos, em segundos
-   104                              <1> MOTIVO_KO       EQU     1           ; round terminou por falta de energia
-   105                              <1> MOTIVO_TEMPO    EQU     2           ; round terminou por tempo esgotado
-   106                              <1> 
-   107                              <1> ; ------------------------------- Fisica dos lutadores -------------------------
-   108                              <1> VELOCIDADE      EQU     4           ; pixels por tique (~73 px/s)
-   109                              <1> LIM_ESQ         EQU     40          ; menor X permitido para o centro do boneco
-   110                              <1> LIM_DIR         EQU     598         ; maior X permitido (braco vai ate +27)
-   111                              <1> DIST_MIN        EQU     50          ; distancia minima entre os dois lutadores
-   112                              <1> Y_CHAO          EQU     156         ; Y dos ombros com o lutador no chao
-   113                              <1> VEL_PULO        EQU     22          ; velocidade vertical inicial do pulo (px/tique)
-   114                              <1> GRAVIDADE       EQU     3           ; reducao de VY a cada tique
-   115                              <1> X_INICIAL_J1    EQU     150
-   116                              <1> X_INICIAL_J2    EQU     490
-   117                              <1> 
-   118                              <1> ; ------------------------------- Colisao --------------------------------------
-   119                              <1> ALCANCE_SOCO    EQU     68          ; distancia maxima em X para o soco acertar
-   120                              <1> ALCANCE_CHUTE   EQU     74          ; distancia maxima em X para o chute acertar
-   121                              <1> TOLERANCIA_Y    EQU     25          ; diferenca de altura maxima para o soco
-   122                              <1> FRAME_IMPACTO_SOCO  EQU 2           ; frame da animacao em que o soco "pega"
-   123                              <1> FRAME_IMPACTO_CHUTE EQU 3           ; frame da animacao em que o chute "pega"
-   124                              <1> 
-   125                              <1> ; ------------------------------- Estados de animacao --------------------------
-   126                              <1> EST_IDLE        EQU     0
-   127                              <1> EST_ANDA        EQU     1
-   128                              <1> EST_SOCO        EQU     2
-   129                              <1> EST_CHUTE       EQU     3
-   130                              <1> EST_ABAIXA      EQU     4
-   131                              <1> 
-   132                              <1> ; ------------------------------- Estrutura de um jogador (20 bytes) -----------
-   133                              <1> ; Acesse sempre como [SI+campo] ou [jogadorN+campo].
-   134                              <1> JX              EQU     0           ; dw  posicao X atual (centro do tronco)
-   135                              <1> JY              EQU     2           ; dw  posicao Y atual (ombros)
-   136                              <1> JXANT           EQU     4           ; dw  X onde foi desenhado por ultimo
-   137                              <1> JYANT           EQU     6           ; dw  Y onde foi desenhado por ultimo
-   138                              <1> JFRAME          EQU     8           ; db  frame atual da animacao
-   139                              <1> JFRAMEANT       EQU     9           ; db  frame desenhado por ultimo
-   140                              <1> JDIR            EQU     10          ; db  0 = olha p/ direita, 1 = p/ esquerda
-   141                              <1> JDIRANT         EQU     11          ; db  direcao desenhada por ultimo
-   142                              <1> JCOR            EQU     12          ; db  cor do lutador (escolhida na selecao)
-   143                              <1> JENERGIA        EQU     13          ; db  energia (comeca em ENERGIA_INICIAL)
-   144                              <1> JESTADO         EQU     14          ; db  estado de animacao (EST_*)
-   145                              <1> JESTADOANT      EQU     15          ; db  estado desenhado por ultimo
-   146                              <1> JVY             EQU     16          ; dw  velocidade vertical (positiva = sobe)
-   147                              <1> JPULO           EQU     18          ; db  1 = no ar, 0 = no chao
-   148                              <1>                                     ; byte 19: reserva (alinhamento)
-   149                              <1> TAM_JOGADOR     EQU     20
-   150                                  
-   151                                  global  instala_relogio
-   152                                  global  restaura_relogio
-   153                                  global  zera_cronometro
-   154                                  global  tique_jogo
-   155                                  global  segundos
-   156                                  global  relogio_ativo
-   157                                  
-   158                                  FRAC_POR_TIQUE  EQU     5           ; 5/91 s p/tick = 1/18,2 s
-   159                                  FRAC_POR_SEG    EQU     91
-   160                                  
-   161                                  segment code public class=CODE
-   162                                  
-   163                                  ; -----------------------------------------------------------------------------
-   164                                  ; instala_relogio: salva o vetor da INT 8h e instala ClockINT.
-   165                                  ; -----------------------------------------------------------------------------
-   166                                  instala_relogio:
-   167 00000000 50                              PUSH    AX
-   168 00000001 06                              PUSH    ES
-   169 00000002 FA                              CLI
-   170 00000003 31C0                            XOR     AX, AX
-   171 00000005 8EC0                            MOV     ES, AX
-   172 00000007 26A12000                        MOV     AX, [ES:INT_CLK*4]          ; IP original
-   173 0000000B A3[0000]                        MOV     [offset_clk], AX
-   174 0000000E 26A12200                        MOV     AX, [ES:INT_CLK*4+2]        ; CS original
-   175 00000012 A3[0200]                        MOV     [cs_clk], AX
-   176 00000015 268C0E2200                      MOV     [ES:INT_CLK*4+2], CS
-   177 0000001A 26C7062000[4C00]                MOV     WORD [ES:INT_CLK*4], ClockINT
-   178 00000021 FB                              STI
-   179 00000022 07                              POP     ES
-   180 00000023 58                              POP     AX
-   181 00000024 C3                              RET
-   182                                  
-   183                                  ; -----------------------------------------------------------------------------
-   184                                  ; restaura_relogio: devolve o vetor original da INT 8h.
-   185                                  ; -----------------------------------------------------------------------------
-   186                                  restaura_relogio:
-   187 00000025 50                              PUSH    AX
-   188 00000026 06                              PUSH    ES
-   189 00000027 FA                              CLI
-   190 00000028 31C0                            XOR     AX, AX
-   191 0000002A 8EC0                            MOV     ES, AX
-   192 0000002C A1[0200]                        MOV     AX, [cs_clk]
-   193 0000002F 26A32200                        MOV     [ES:INT_CLK*4+2], AX
-   194 00000033 A1[0000]                        MOV     AX, [offset_clk]
-   195 00000036 26A32000                        MOV     [ES:INT_CLK*4], AX
-   196 0000003A FB                              STI
-   197 0000003B 07                              POP     ES
-   198 0000003C 58                              POP     AX
-   199 0000003D C3                              RET
-   200                                  
-   201                                  ; -----------------------------------------------------------------------------
-   202                                  ; zera_cronometro: zera os segundos do round (inicio de cada round).
-   203                                  ; Feito com interrupcoes desabilitadas para nao competir com a ISR.
-   204                                  ; -----------------------------------------------------------------------------
-   205                                  zera_cronometro:
-   206 0000003E FA                              CLI
-   207 0000003F C706[0600]0000                  MOV     WORD [segundos], 0
-   208 00000045 C606[0800]00                    MOV     byte [fracao], 0
-   209 0000004A FB                              STI
-   210 0000004B C3                              RET
-   211                                  
-   212                                  ; =============================================================================
-   213                                  ; ClockINT  -  ISR do relogio (INT 8h)
-   214                                  ; =============================================================================
-   215                                  ClockINT:
-   216 0000004C 50                              PUSH    AX
-   217 0000004D 1E                              PUSH    DS
-   218 0000004E B8[0000]                        MOV     AX, data
-   219 00000051 8ED8                            MOV     DS, AX
-   220                                  
-   221 00000053 FF06[0400]                      INC     WORD [tique_jogo]           ; um "frame" do jogo
-   222                                  
-   223 00000057 803E[0900]00                    CMP     byte [relogio_ativo], 0     ; cronometro congelado?
-   224 0000005C 7415                            JE      ck_chain
-   225 0000005E 8006[0800]05                    ADD     byte [fracao], FRAC_POR_TIQUE
-   226 00000063 803E[0800]5B                    CMP     byte [fracao], FRAC_POR_SEG
-   227 00000068 7209                            JB      ck_chain
-   228 0000006A 802E[0800]5B                    SUB     byte [fracao], FRAC_POR_SEG
-   229 0000006F FF06[0600]                      INC     WORD [segundos]             ; passou 1 segundo de round
-   230                                  
-   231                                  ck_chain:
-   232 00000073 9C                              PUSHF                               ; simula um INT para a ISR original
-   233 00000074 FF1E[0000]                      CALL    FAR [offset_clk]            ; (ela faz o EOI e termina em IRET)
-   234                                  
-   235 00000078 1F                              POP     DS
-   236 00000079 58                              POP     AX
-   237 0000007A CF                              IRET
-   238                                  
-   239                                  ; =============================================================================
-   240                                  segment data public class=DATA
-   241                                  
-   242 00000000 0000                    offset_clk      DW      0           ; IP original da INT 8h (offset ANTES do
-   243 00000002 0000                    cs_clk          DW      0           ; CS original da INT 8h  segmento: far ptr)
-   244 00000004 0000                    tique_jogo      DW      0           ; incrementado a cada tique (~55 ms)
-   245 00000006 0000                    segundos        DW      0           ; segundos de round decorridos
-   246 00000008 00                      fracao          DB      0           ; acumulador fracionario (0..90)
-   247 00000009 00                      relogio_ativo   DB      0           ; 1 = round em andamento (conta segundos)
+    25                                  ; ------------------------------- Constantes (EQU) -----------------------------
+    26                                  ; Constantes usadas por este modulo. Um EQU nao ocupa memoria: o montador
+    27                                  ; troca o nome pelo valor. As que aparecem em mais de um modulo (estrutura do
+    28                                  ; jogador, cores, scan codes, regras) precisam ter o MESMO valor em todos.
+    29                                  
+    30                                  ; ------------------------------- Hardware -------------------------------------
+    31                                  INT_CLK         EQU     08h         ; interrupcao de hardware do 8253 (IRQ0)
+    32                                  
+    33                                  global  instala_relogio
+    34                                  global  restaura_relogio
+    35                                  global  zera_cronometro
+    36                                  global  tique_jogo
+    37                                  global  segundos
+    38                                  global  relogio_ativo
+    39                                  
+    40                                  FRAC_POR_TIQUE  EQU     5           ; 5/91 s p/tick = 1/18,2 s
+    41                                  FRAC_POR_SEG    EQU     91
+    42                                  
+    43                                  segment code public class=CODE
+    44                                  
+    45                                  ; -----------------------------------------------------------------------------
+    46                                  ; instala_relogio: salva o vetor da INT 8h e instala ClockINT.
+    47                                  ; -----------------------------------------------------------------------------
+    48                                  instala_relogio:
+    49 00000000 50                              PUSH    AX
+    50 00000001 06                              PUSH    ES
+    51 00000002 FA                              CLI
+    52 00000003 31C0                            XOR     AX, AX
+    53 00000005 8EC0                            MOV     ES, AX
+    54 00000007 26A12000                        MOV     AX, [ES:INT_CLK*4]          ; IP original
+    55 0000000B A3[0000]                        MOV     [offset_clk], AX
+    56 0000000E 26A12200                        MOV     AX, [ES:INT_CLK*4+2]        ; CS original
+    57 00000012 A3[0200]                        MOV     [cs_clk], AX
+    58 00000015 268C0E2200                      MOV     [ES:INT_CLK*4+2], CS
+    59 0000001A 26C7062000[4C00]                MOV     WORD [ES:INT_CLK*4], ClockINT
+    60 00000021 FB                              STI
+    61 00000022 07                              POP     ES
+    62 00000023 58                              POP     AX
+    63 00000024 C3                              RET
+    64                                  
+    65                                  ; -----------------------------------------------------------------------------
+    66                                  ; restaura_relogio: devolve o vetor original da INT 8h.
+    67                                  ; -----------------------------------------------------------------------------
+    68                                  restaura_relogio:
+    69 00000025 50                              PUSH    AX
+    70 00000026 06                              PUSH    ES
+    71 00000027 FA                              CLI
+    72 00000028 31C0                            XOR     AX, AX
+    73 0000002A 8EC0                            MOV     ES, AX
+    74 0000002C A1[0200]                        MOV     AX, [cs_clk]
+    75 0000002F 26A32200                        MOV     [ES:INT_CLK*4+2], AX
+    76 00000033 A1[0000]                        MOV     AX, [offset_clk]
+    77 00000036 26A32000                        MOV     [ES:INT_CLK*4], AX
+    78 0000003A FB                              STI
+    79 0000003B 07                              POP     ES
+    80 0000003C 58                              POP     AX
+    81 0000003D C3                              RET
+    82                                  
+    83                                  ; -----------------------------------------------------------------------------
+    84                                  ; zera_cronometro: zera os segundos do round (inicio de cada round).
+    85                                  ; Feito com interrupcoes desabilitadas para nao competir com a ISR.
+    86                                  ; -----------------------------------------------------------------------------
+    87                                  zera_cronometro:
+    88 0000003E FA                              CLI
+    89 0000003F C706[0600]0000                  MOV     WORD [segundos], 0
+    90 00000045 C606[0800]00                    MOV     byte [fracao], 0
+    91 0000004A FB                              STI
+    92 0000004B C3                              RET
+    93                                  
+    94                                  ; =============================================================================
+    95                                  ; ClockINT  -  ISR do relogio (INT 8h)
+    96                                  ; =============================================================================
+    97                                  ClockINT:
+    98 0000004C 50                              PUSH    AX
+    99 0000004D 1E                              PUSH    DS
+   100 0000004E B8[0000]                        MOV     AX, data
+   101 00000051 8ED8                            MOV     DS, AX
+   102                                  
+   103 00000053 FF06[0400]                      INC     WORD [tique_jogo]           ; um "frame" do jogo
+   104                                  
+   105 00000057 803E[0900]00                    CMP     byte [relogio_ativo], 0     ; cronometro congelado?
+   106 0000005C 7415                            JE      ck_chain
+   107 0000005E 8006[0800]05                    ADD     byte [fracao], FRAC_POR_TIQUE
+   108 00000063 803E[0800]5B                    CMP     byte [fracao], FRAC_POR_SEG
+   109 00000068 7209                            JB      ck_chain
+   110 0000006A 802E[0800]5B                    SUB     byte [fracao], FRAC_POR_SEG
+   111 0000006F FF06[0600]                      INC     WORD [segundos]             ; passou 1 segundo de round
+   112                                  
+   113                                  ck_chain:
+   114 00000073 9C                              PUSHF                               ; simula um INT para a ISR original
+   115 00000074 FF1E[0000]                      CALL    FAR [offset_clk]            ; (ela faz o EOI e termina em IRET)
+   116                                  
+   117 00000078 1F                              POP     DS
+   118 00000079 58                              POP     AX
+   119 0000007A CF                              IRET
+   120                                  
+   121                                  ; =============================================================================
+   122                                  segment data public class=DATA
+   123                                  
+   124 00000000 0000                    offset_clk      DW      0           ; IP original da INT 8h (offset ANTES do
+   125 00000002 0000                    cs_clk          DW      0           ; CS original da INT 8h  segmento: far ptr)
+   126 00000004 0000                    tique_jogo      DW      0           ; incrementado a cada tique (~55 ms)
+   127 00000006 0000                    segundos        DW      0           ; segundos de round decorridos
+   128 00000008 00                      fracao          DB      0           ; acumulador fracionario (0..90)
+   129 00000009 00                      relogio_ativo   DB      0           ; 1 = round em andamento (conta segundos)

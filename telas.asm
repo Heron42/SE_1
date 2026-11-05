@@ -1,23 +1,6 @@
-; =============================================================================
-; telas.asm  -  Telas do jogo: selecao de lutadores, avisos de round e Game Over
-; -----------------------------------------------------------------------------
-; tela_selecao      : cada jogador escolhe a cor do seu lutador
-;                     (J1: W/S, J2: setas cima/baixo, ENTER inicia a luta).
-;                     Os dois nao podem ficar com a mesma cor: a cor ja
-;                     escolhida pelo adversario e pulada automaticamente.
-; anuncia_round     : "ROUND n" / "LUTEM!" antes de cada round
-; anuncia_fim_round : motivo do fim (nocaute ou tempo) e vencedor do round
-; tela_game_over    : "GAME OVER", vencedor, placar e menu Y/N
-;
-; Em todas as telas, Q/ESC pede confirmacao de saida (Y/N).
-; =============================================================================
+; telas.asm - Telas do jogo: selecao de lutadores, avisos de round e Game Over
 
-; ------------------------------- Constantes (EQU) -----------------------------
-; Constantes usadas por este modulo. Um EQU nao ocupa memoria: o montador
-; troca o nome pelo valor. As que aparecem em mais de um modulo (estrutura do
-; jogador, cores, scan codes, regras) precisam ter o MESMO valor em todos.
-
-; ------------------------------- Scan codes (make) ----------------------------
+; Scan codes (make)
 TEC_ESC         EQU     01h
 TEC_Q           EQU     10h
 TEC_W           EQU     11h
@@ -25,10 +8,10 @@ TEC_Y           EQU     15h
 TEC_ENTER       EQU     1Ch
 TEC_S           EQU     1Fh
 TEC_N           EQU     31h
-TEC_CIMA        EQU     48h         ; seta para cima   (chega apos o prefixo E0h)
-TEC_BAIXO       EQU     50h         ; seta para baixo  (apos E0h)
+TEC_CIMA        EQU     48h         ; seta para cima  
+TEC_BAIXO       EQU     50h         ; seta para baixo 
 
-; ------------------------------- Cores (paleta padrao VGA) --------------------
+; Cores (paleta padrao VGA)
 vermelho        EQU     4           ; 0 1 0 0
 marrom          EQU     6           ; 0 1 1 0
 branco          EQU     7           ; 0 1 1 1
@@ -40,21 +23,21 @@ magenta_claro   EQU     13          ; 1 1 0 1
 amarelo         EQU     14          ; 1 1 1 0
 branco_intenso  EQU     15          ; 1 1 1 1
 
-; ------------------------------- Arena e HUD ----------------------------------
-LIN_MSG         EQU     6           ; mensagens no centro da arena (acima do pulo)
+; Arena e HUD
+LIN_MSG         EQU     6      
 
-; ------------------------------- Regras do jogo -------------------------------
-MOTIVO_TEMPO    EQU     2           ; round terminou por tempo esgotado
+; Regras do jogo
+MOTIVO_TEMPO    EQU     2        
 
-; ------------------------------- Colisao --------------------------------------
+; Colisao
 FRAME_IMPACTO_SOCO  EQU 2           ; frame da animacao em que o soco "pega"
 
-; ------------------------------- Estados de animacao --------------------------
+; Estados de animacao
 EST_IDLE        EQU     0
 EST_SOCO        EQU     2
 
-; ------------------------------- Estrutura de um jogador (20 bytes) -----------
-JCOR            EQU     12          ; db  cor do lutador (escolhida na selecao)
+; Estrutura de um jogador
+JCOR            EQU     12          ; db  cor do lutador
 
 global  tela_selecao
 global  anuncia_round
@@ -81,7 +64,7 @@ extern  vencedor
 extern  vencedor_round
 extern  motivo_fim
 
-NUM_CORES       EQU     8           ; potencia de 2 (indice mascarado)
+NUM_CORES       EQU     8           ; potencia de 2 
 LIN_TITULO      EQU     2
 LIN_CABECALHO   EQU     5
 LIN_LISTA       EQU     7           ; primeira linha da lista de cores
@@ -92,18 +75,16 @@ X_PREVIA_J2     EQU     380
 Y_PREVIA        EQU     225         ; ombros do boneco de previa
 LIN_CTRL        EQU     23
 
-TIQUES_ROUND    EQU     27          ; ~1,5 s mostrando "ROUND n"
-TIQUES_LUTEM    EQU     11          ; ~0,6 s mostrando "LUTEM!"
-TIQUES_FIM      EQU     45          ; ~2,5 s mostrando o vencedor do round
+TIQUES_ROUND    EQU     27          ; 1,5 s mostrando "ROUND n"
+TIQUES_LUTEM    EQU     11          ; 0,5 s mostrando "LUTEM!"
+TIQUES_FIM      EQU     45          ; 2,5 s mostrando o vencedor do round
 
 segment code public class=CODE
 
-; =============================================================================
 ; tela_selecao
 ; Saida: sair_flag = 1 se o usuario confirmou a saida pela tecla Q/ESC.
 ;        Caso contrario, [jogador1+JCOR] e [jogador2+JCOR] recebem as cores
 ;        escolhidas.
-; =============================================================================
 tela_selecao:
         PUSH    AX
         PUSH    BX
@@ -114,7 +95,7 @@ tela_selecao:
         CALL    limpa_tela
         CALL    limpa_eventos
 
-        ; ---- textos fixos
+        ; textos fixos
         MOV     byte [cor], amarelo
         MOV     SI, str_titulo
         MOV     DH, LIN_TITULO
@@ -141,7 +122,7 @@ tela_selecao:
         MOV     DH, LIN_CTRL + 2
         CALL    msg_centro
 
-        ; ---- "chao" sob as previas
+        ; chao sob as previas
         MOV     byte [cor], cinza
         MOV     AX, X_PREVIA_J1 - 60
         PUSH    AX
@@ -156,7 +137,7 @@ tela_selecao:
         CALL    redesenha_j1
         CALL    redesenha_j2
 
-        ; ---- laco de selecao
+        ; laco de selecao
 ts_espera:
         CALL    espera_evento               ; AL = scan code MAKE
         CMP     AL, TEC_W
@@ -223,12 +204,9 @@ ts_fim:
         POP     AX
         RET
 
-; -----------------------------------------------------------------------------
 ; muda_cor
 ; Entrada: SI -> indice da cor do jogador, DI -> indice da cor do adversario,
 ;          AL = +1 (desce na lista) ou -1 (sobe na lista).
-; Avanca circularmente e pula a cor ja escolhida pelo adversario.
-; -----------------------------------------------------------------------------
 muda_cor:
         PUSH    BX
         MOV     BL, [SI]
@@ -241,9 +219,7 @@ mc_avanca:
         POP     BX
         RET
 
-; -----------------------------------------------------------------------------
 ; redesenha_j1 / redesenha_j2: lista de cores com marcador + boneco de previa.
-; -----------------------------------------------------------------------------
 redesenha_j1:
         PUSH    AX
         PUSH    BX
@@ -290,12 +266,8 @@ redesenha_j2:
         POP     AX
         RET
 
-; -----------------------------------------------------------------------------
 ; desenha_lista
 ; Entrada: AL = indice selecionado, DL = coluna do marcador.
-; Escreve as NUM_CORES opcoes (cada nome na propria cor), com ">" na
-; selecionada e " " nas demais.
-; -----------------------------------------------------------------------------
 desenha_lista:
         PUSH    AX
         PUSH    BX
@@ -307,7 +279,7 @@ desenha_lista:
         MOV     DH, LIN_LISTA
         XOR     CX, CX                      ; CX = indice da opcao
 dl_loop:
-        ; ---- marcador
+        ; marcador
         MOV     byte [cor], branco_intenso
         MOV     SI, str_marca_off
         CMP     CL, AH
@@ -316,7 +288,7 @@ dl_loop:
 dl_marca:
         CALL    escreve_texto
 
-        ; ---- nome da cor, escrito na propria cor
+        ; nome da cor, escrito na propria cor
         MOV     BX, CX
         MOV     AL, [tabela_cores+BX]
         MOV     [cor], AL
@@ -339,11 +311,7 @@ dl_marca:
         POP     AX
         RET
 
-; =============================================================================
 ; anuncia_round
-; Mostra "ROUND n" e "LUTEM!" no centro da arena antes do round comecar
-; (com o cronometro ainda parado). Respeita Q/ESC via aguarda.
-; =============================================================================
 anuncia_round:
         PUSH    AX
         PUSH    CX
@@ -378,10 +346,7 @@ ar_fim:
         POP     AX
         RET
 
-; =============================================================================
 ; anuncia_fim_round
-; Mostra o motivo do fim do round e quem venceu, por ~2,5 s.
-; =============================================================================
 anuncia_fim_round:
         PUSH    AX
         PUSH    BX
@@ -416,11 +381,8 @@ afr_motivo:
         POP     AX
         RET
 
-; -----------------------------------------------------------------------------
 ; cor_do_jogador
 ; Entrada: AL = 1 ou 2. Saida: [cor] = cor escolhida por esse jogador.
-; Preserva AL.
-; -----------------------------------------------------------------------------
 cor_do_jogador:
         PUSH    BX
         MOV     BL, [jogador1+JCOR]
@@ -432,12 +394,8 @@ cdj_grava:
         POP     BX
         RET
 
-; =============================================================================
 ; tela_game_over
-; Mostra "GAME OVER", o vencedor da partida, o placar e pergunta se os
-; jogadores querem uma nova partida.
 ; Saida: AL = 1 -> Y (nova partida), AL = 0 -> N ou saida confirmada (Q).
-; =============================================================================
 tela_game_over:
         PUSH    BX
         PUSH    CX
@@ -471,7 +429,6 @@ tela_game_over:
         MOV     DH, 9
         CALL    msg_centro
 
-        ; ---- o campeao, em pose de soco
         MOV     SI, jogador1
         CMP     byte [vencedor], 1
         JE      go_boneco
@@ -516,10 +473,9 @@ go_fim:
         POP     BX
         RET
 
-; =============================================================================
 segment data public class=DATA
 
-idx_j1          DB      0           ; cor atual do J1 (indice em tabela_cores)
+idx_j1          DB      0           ; cor atual do J1
 idx_j2          DB      1           ; cor atual do J2
 
 tabela_cores    DB      azul_claro, vermelho, verde_claro, amarelo

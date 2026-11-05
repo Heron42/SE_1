@@ -29,437 +29,342 @@
     29                                  ;   motivo_fim, ultimo_golpe, sair_flag
     30                                  ; =============================================================================
     31                                  
-    32                                  %include "const.inc"
-    33                              <1> ; =============================================================================
-    34                              <1> ; const.inc  -  Constantes compartilhadas por todos os modulos do jogo
-    35                              <1> ; -----------------------------------------------------------------------------
-    36                              <1> ; Contem apenas EQUs (nao gera codigo nem dados). Incluido com
-    37                              <1> ;   %include "const.inc"
-    38                              <1> ; em cada modulo .asm. Qualquer alteracao aqui exige remontar todos os
-    39                              <1> ; modulos (o Makefile ja declara essa dependencia).
-    40                              <1> ; =============================================================================
-    41                              <1> 
-    42                              <1> ; ------------------------------- Hardware -------------------------------------
-    43                              <1> KB_DATA         EQU     60h         ; porta de dados do teclado (8042)
-    44                              <1> KB_CTL          EQU     61h         ; porta de controle do teclado (8255 PB)
-    45                              <1> PICTRL          EQU     20h         ; porta de comando do PIC 8259
-    46                              <1> EOI             EQU     20h         ; comando End Of Interrupt
-    47                              <1> INT_TEC         EQU     09h         ; interrupcao de hardware do teclado (IRQ1)
-    48                              <1> INT_CLK         EQU     08h         ; interrupcao de hardware do 8253 (IRQ0)
-    49                              <1> 
-    50                              <1> ; ------------------------------- Scan codes (make) ----------------------------
-    51                              <1> TEC_ESC         EQU     01h
-    52                              <1> TEC_Q           EQU     10h
-    53                              <1> TEC_W           EQU     11h
-    54                              <1> TEC_R           EQU     13h
-    55                              <1> TEC_T           EQU     14h
-    56                              <1> TEC_Y           EQU     15h
-    57                              <1> TEC_P           EQU     19h
-    58                              <1> TEC_ENTER       EQU     1Ch
-    59                              <1> TEC_A           EQU     1Eh
-    60                              <1> TEC_S           EQU     1Fh
-    61                              <1> TEC_D           EQU     20h
-    62                              <1> TEC_N           EQU     31h
-    63                              <1> TEC_M           EQU     32h
-    64                              <1> TEC_CIMA        EQU     48h         ; seta para cima   (chega apos o prefixo E0h)
-    65                              <1> TEC_ESQ         EQU     4Bh         ; seta esquerda    (apos E0h)
-    66                              <1> TEC_DIR         EQU     4Dh         ; seta direita     (apos E0h)
-    67                              <1> TEC_BAIXO       EQU     50h         ; seta para baixo  (apos E0h)
-    68                              <1> 
-    69                              <1> ; ------------------------------- Cores (paleta padrao VGA) --------------------
-    70                              <1>                                     ; I R G B
-    71                              <1> preto           EQU     0           ; 0 0 0 0
-    72                              <1> azul            EQU     1           ; 0 0 0 1
-    73                              <1> verde           EQU     2           ; 0 0 1 0
-    74                              <1> cyan            EQU     3           ; 0 0 1 1
-    75                              <1> vermelho        EQU     4           ; 0 1 0 0
-    76                              <1> magenta         EQU     5           ; 0 1 0 1
-    77                              <1> marrom          EQU     6           ; 0 1 1 0
-    78                              <1> branco          EQU     7           ; 0 1 1 1
-    79                              <1> cinza           EQU     8           ; 1 0 0 0
-    80                              <1> azul_claro      EQU     9           ; 1 0 0 1
-    81                              <1> verde_claro     EQU     10          ; 1 0 1 0
-    82                              <1> cyan_claro      EQU     11          ; 1 0 1 1
-    83                              <1> rosa            EQU     12          ; 1 1 0 0
-    84                              <1> magenta_claro   EQU     13          ; 1 1 0 1
-    85                              <1> amarelo         EQU     14          ; 1 1 1 0
-    86                              <1> branco_intenso  EQU     15          ; 1 1 1 1
-    87                              <1> 
-    88                              <1> ; ------------------------------- Arena e HUD ----------------------------------
-    89                              <1> ; Coordenadas no sistema de plot_xy: Y = 0 embaixo, Y = 479 em cima.
-    90                              <1> ARENA_ESQ       EQU     10
-    91                              <1> ARENA_DIR       EQU     629
-    92                              <1> ARENA_BAIXO     EQU     70          ; chao
-    93                              <1> ARENA_TOPO      EQU     420         ; acima disso fica o HUD
-    94                              <1> 
-    95                              <1> BARRA_Y_BAIXO   EQU     440         ; barras de energia
-    96                              <1> BARRA_Y_TOPO    EQU     460
-    97                              <1> BARRA_P1_X      EQU     20          ; J1: X = 20..219
-    98                              <1> BARRA_P2_X      EQU     420         ; J2: X = 420..619
-    99                              <1> LARG_BLOCO      EQU     20          ; 1 ponto de energia = 20 px de barra
-   100                              <1> 
-   101                              <1> ; Linhas de texto (modo 12h: 30 linhas x 80 colunas, celula 8x16)
-   102                              <1> LIN_TEMPO       EQU     1           ; cronometro (centro do HUD)
-   103                              <1> COL_TEMPO       EQU     38
-   104                              <1> LIN_MSG         EQU     6           ; mensagens no centro da arena (acima do pulo)
-   105                              <1> LIN_CONFIRMA    EQU     27          ; confirmacao de saida (abaixo do chao)
-   106                              <1> 
-   107                              <1> ; ------------------------------- Regras do jogo -------------------------------
-   108                              <1> ENERGIA_INICIAL EQU     10          ; golpes validos para perder o round
-   109                              <1> ROUNDS_VITORIA  EQU     2           ; melhor de tres
-   110                              <1> TEMPO_ROUND     EQU     180         ; 3 minutos, em segundos
-   111                              <1> MOTIVO_KO       EQU     1           ; round terminou por falta de energia
-   112                              <1> MOTIVO_TEMPO    EQU     2           ; round terminou por tempo esgotado
-   113                              <1> 
-   114                              <1> ; ------------------------------- Fisica dos lutadores -------------------------
-   115                              <1> VELOCIDADE      EQU     4           ; pixels por tique (~73 px/s)
-   116                              <1> LIM_ESQ         EQU     40          ; menor X permitido para o centro do boneco
-   117                              <1> LIM_DIR         EQU     598         ; maior X permitido (braco vai ate +27)
-   118                              <1> DIST_MIN        EQU     50          ; distancia minima entre os dois lutadores
-   119                              <1> Y_CHAO          EQU     156         ; Y dos ombros com o lutador no chao
-   120                              <1> VEL_PULO        EQU     22          ; velocidade vertical inicial do pulo (px/tique)
-   121                              <1> GRAVIDADE       EQU     3           ; reducao de VY a cada tique
-   122                              <1> X_INICIAL_J1    EQU     150
-   123                              <1> X_INICIAL_J2    EQU     490
-   124                              <1> 
-   125                              <1> ; ------------------------------- Colisao --------------------------------------
-   126                              <1> ALCANCE_SOCO    EQU     68          ; distancia maxima em X para o soco acertar
-   127                              <1> ALCANCE_CHUTE   EQU     74          ; distancia maxima em X para o chute acertar
-   128                              <1> TOLERANCIA_Y    EQU     25          ; diferenca de altura maxima para o soco
-   129                              <1> FRAME_IMPACTO_SOCO  EQU 2           ; frame da animacao em que o soco "pega"
-   130                              <1> FRAME_IMPACTO_CHUTE EQU 3           ; frame da animacao em que o chute "pega"
-   131                              <1> 
-   132                              <1> ; ------------------------------- Estados de animacao --------------------------
-   133                              <1> EST_IDLE        EQU     0
-   134                              <1> EST_ANDA        EQU     1
-   135                              <1> EST_SOCO        EQU     2
-   136                              <1> EST_CHUTE       EQU     3
-   137                              <1> EST_ABAIXA      EQU     4
-   138                              <1> 
-   139                              <1> ; ------------------------------- Estrutura de um jogador (20 bytes) -----------
-   140                              <1> ; Acesse sempre como [SI+campo] ou [jogadorN+campo].
-   141                              <1> JX              EQU     0           ; dw  posicao X atual (centro do tronco)
-   142                              <1> JY              EQU     2           ; dw  posicao Y atual (ombros)
-   143                              <1> JXANT           EQU     4           ; dw  X onde foi desenhado por ultimo
-   144                              <1> JYANT           EQU     6           ; dw  Y onde foi desenhado por ultimo
-   145                              <1> JFRAME          EQU     8           ; db  frame atual da animacao
-   146                              <1> JFRAMEANT       EQU     9           ; db  frame desenhado por ultimo
-   147                              <1> JDIR            EQU     10          ; db  0 = olha p/ direita, 1 = p/ esquerda
-   148                              <1> JDIRANT         EQU     11          ; db  direcao desenhada por ultimo
-   149                              <1> JCOR            EQU     12          ; db  cor do lutador (escolhida na selecao)
-   150                              <1> JENERGIA        EQU     13          ; db  energia (comeca em ENERGIA_INICIAL)
-   151                              <1> JESTADO         EQU     14          ; db  estado de animacao (EST_*)
-   152                              <1> JESTADOANT      EQU     15          ; db  estado desenhado por ultimo
-   153                              <1> JVY             EQU     16          ; dw  velocidade vertical (positiva = sobe)
-   154                              <1> JPULO           EQU     18          ; db  1 = no ar, 0 = no chao
-   155                              <1>                                     ; byte 19: reserva (alinhamento)
-   156                              <1> TAM_JOGADOR     EQU     20
-   157                                  
-   158                                  global  inicia_partida
-   159                                  global  verifica_fim_round
-   160                                  global  trata_eventos
-   161                                  global  pausa
-   162                                  global  confirma_saida
-   163                                  global  aguarda
-   164                                  global  rounds_p1
-   165                                  global  rounds_p2
-   166                                  global  round_acabou
-   167                                  global  vencedor
-   168                                  global  vencedor_round
-   169                                  global  motivo_fim
-   170                                  global  ultimo_golpe
-   171                                  global  sair_flag
-   172                                  
-   173                                  extern  le_evento                   ; teclado.asm
-   174                                  extern  espera_evento
-   175                                  extern  limpa_eventos
-   176                                  extern  teclas
-   177                                  extern  tique_jogo                  ; tempo.asm
-   178                                  extern  segundos
-   179                                  extern  relogio_ativo
-   180                                  extern  jogador1                    ; jogador.asm
-   181                                  extern  jogador2
-   182                                  extern  msg_centro                  ; hud.asm
-   183                                  extern  apaga_linha
-   184                                  extern  cor                         ; graficos.asm
-   185                                  
-   186                                  segment code public class=CODE
-   187                                  
-   188                                  ; =============================================================================
-   189                                  ; inicia_partida: zera o placar no inicio de uma nova partida.
-   190                                  ; =============================================================================
-   191                                  inicia_partida:
-   192 00000000 C606[0000]00                    MOV     byte [rounds_p1], 0
-   193 00000005 C606[0100]00                    MOV     byte [rounds_p2], 0
-   194 0000000A C606[0300]00                    MOV     byte [vencedor], 0
-   195 0000000F C606[0700]00                    MOV     byte [sair_flag], 0
-   196 00000014 C3                              RET
-   197                                  
-   198                                  ; =============================================================================
-   199                                  ; verifica_fim_round
-   200                                  ; Chamada uma vez por tique. Se o round terminou, define:
-   201                                  ;   round_acabou = 1, vencedor_round = 1 ou 2, motivo_fim = KO ou TEMPO,
-   202                                  ;   incrementa os rounds do vencedor e, se ele chegou a ROUNDS_VITORIA,
-   203                                  ;   define vencedor = 1 ou 2 (fim da partida).
-   204                                  ; Antes do inicio de cada round, round_acabou e ultimo_golpe devem ser 0.
-   205                                  ; =============================================================================
-   206                                  verifica_fim_round:
-   207 00000015 50                              PUSH    AX
-   208 00000016 53                              PUSH    BX
-   209                                  
-   210 00000017 C606[0500]01                    MOV     byte [motivo_fim], MOTIVO_KO
-   211 0000001C 803E[0D00]00                    CMP     byte [jogador1+JENERGIA], 0
-   212 00000021 7414                            JE      vfr_compara
-   213 00000023 803E[0D00]00                    CMP     byte [jogador2+JENERGIA], 0
-   214 00000028 740D                            JE      vfr_compara
-   215 0000002A 813E[0000]B400                  CMP     WORD [segundos], TEMPO_ROUND
-   216 00000030 7C6A                            JL      vfr_fim                     ; round continua
-   217 00000032 C606[0500]02                    MOV     byte [motivo_fim], MOTIVO_TEMPO
-   218                                  
-   219                                  vfr_compara:
-   220                                          ; ---- 1. energia
-   221 00000037 A0[0D00]                        MOV     AL, [jogador1+JENERGIA]
-   222 0000003A 3A06[0D00]                      CMP     AL, [jogador2+JENERGIA]
-   223 0000003E 772A                            JA      vfr_p1
-   224 00000040 7240                            JB      vfr_p2
-   225                                  
-   226                                          ; ---- 2. ultimo golpe valido
-   227 00000042 803E[0600]01                    CMP     byte [ultimo_golpe], 1
-   228 00000047 7421                            JE      vfr_p1
-   229 00000049 803E[0600]02                    CMP     byte [ultimo_golpe], 2
-   230 0000004E 7432                            JE      vfr_p2
-   231                                  
-   232                                          ; ---- 3. dominio do centro da arena
-   233 00000050 A1[0000]                        MOV     AX, [jogador1+JX]
-   234 00000053 2D4001                          SUB     AX, 320
-   235 00000056 7902                            JNS     vfr_a1
-   236 00000058 F7D8                            NEG     AX
-   237                                  vfr_a1:
-   238 0000005A 8B1E[0000]                      MOV     BX, [jogador2+JX]
-   239 0000005E 81EB4001                        SUB     BX, 320
-   240 00000062 7902                            JNS     vfr_a2
-   241 00000064 F7DB                            NEG     BX
-   242                                  vfr_a2:
-   243 00000066 39D8                            CMP     AX, BX
-   244 00000068 7718                            JA      vfr_p2                      ; J2 mais perto do centro
-   245                                          ; ---- 4. persistindo o empate, J1 (cai em vfr_p1)
+    32                                  ; ------------------------------- Constantes (EQU) -----------------------------
+    33                                  ; Constantes usadas por este modulo. Um EQU nao ocupa memoria: o montador
+    34                                  ; troca o nome pelo valor. As que aparecem em mais de um modulo (estrutura do
+    35                                  ; jogador, cores, scan codes, regras) precisam ter o MESMO valor em todos.
+    36                                  
+    37                                  ; ------------------------------- Scan codes (make) ----------------------------
+    38                                  TEC_ESC         EQU     01h
+    39                                  TEC_Q           EQU     10h
+    40                                  TEC_Y           EQU     15h
+    41                                  TEC_P           EQU     19h
+    42                                  TEC_N           EQU     31h
+    43                                  
+    44                                  ; ------------------------------- Cores (paleta padrao VGA) --------------------
+    45                                  branco          EQU     7           ; 0 1 1 1
+    46                                  amarelo         EQU     14          ; 1 1 1 0
+    47                                  
+    48                                  ; ------------------------------- Arena e HUD ----------------------------------
+    49                                  LIN_MSG         EQU     6           ; mensagens no centro da arena (acima do pulo)
+    50                                  LIN_CONFIRMA    EQU     27          ; confirmacao de saida (abaixo do chao)
+    51                                  
+    52                                  ; ------------------------------- Regras do jogo -------------------------------
+    53                                  ROUNDS_VITORIA  EQU     2           ; melhor de tres
+    54                                  TEMPO_ROUND     EQU     180         ; 3 minutos, em segundos
+    55                                  MOTIVO_KO       EQU     1           ; round terminou por falta de energia
+    56                                  MOTIVO_TEMPO    EQU     2           ; round terminou por tempo esgotado
+    57                                  
+    58                                  ; ------------------------------- Estrutura de um jogador (20 bytes) -----------
+    59                                  ; Acesse sempre como [SI+campo] ou [jogadorN+campo].
+    60                                  JX              EQU     0           ; dw  posicao X atual (centro do tronco)
+    61                                  JENERGIA        EQU     13          ; db  energia (comeca em ENERGIA_INICIAL)
+    62                                  
+    63                                  global  inicia_partida
+    64                                  global  verifica_fim_round
+    65                                  global  trata_eventos
+    66                                  global  pausa
+    67                                  global  confirma_saida
+    68                                  global  aguarda
+    69                                  global  rounds_p1
+    70                                  global  rounds_p2
+    71                                  global  round_acabou
+    72                                  global  vencedor
+    73                                  global  vencedor_round
+    74                                  global  motivo_fim
+    75                                  global  ultimo_golpe
+    76                                  global  sair_flag
+    77                                  
+    78                                  extern  le_evento                   ; teclado.asm
+    79                                  extern  espera_evento
+    80                                  extern  limpa_eventos
+    81                                  extern  teclas
+    82                                  extern  tique_jogo                  ; tempo.asm
+    83                                  extern  segundos
+    84                                  extern  relogio_ativo
+    85                                  extern  jogador1                    ; jogador.asm
+    86                                  extern  jogador2
+    87                                  extern  msg_centro                  ; hud.asm
+    88                                  extern  apaga_linha
+    89                                  extern  cor                         ; graficos.asm
+    90                                  
+    91                                  segment code public class=CODE
+    92                                  
+    93                                  ; =============================================================================
+    94                                  ; inicia_partida: zera o placar no inicio de uma nova partida.
+    95                                  ; =============================================================================
+    96                                  inicia_partida:
+    97 00000000 C606[0000]00                    MOV     byte [rounds_p1], 0
+    98 00000005 C606[0100]00                    MOV     byte [rounds_p2], 0
+    99 0000000A C606[0300]00                    MOV     byte [vencedor], 0
+   100 0000000F C606[0700]00                    MOV     byte [sair_flag], 0
+   101 00000014 C3                              RET
+   102                                  
+   103                                  ; =============================================================================
+   104                                  ; verifica_fim_round
+   105                                  ; Chamada uma vez por tique. Se o round terminou, define:
+   106                                  ;   round_acabou = 1, vencedor_round = 1 ou 2, motivo_fim = KO ou TEMPO,
+   107                                  ;   incrementa os rounds do vencedor e, se ele chegou a ROUNDS_VITORIA,
+   108                                  ;   define vencedor = 1 ou 2 (fim da partida).
+   109                                  ; Antes do inicio de cada round, round_acabou e ultimo_golpe devem ser 0.
+   110                                  ; =============================================================================
+   111                                  verifica_fim_round:
+   112 00000015 50                              PUSH    AX
+   113 00000016 53                              PUSH    BX
+   114                                  
+   115 00000017 C606[0500]01                    MOV     byte [motivo_fim], MOTIVO_KO
+   116 0000001C 803E[0D00]00                    CMP     byte [jogador1+JENERGIA], 0
+   117 00000021 7414                            JE      vfr_compara
+   118 00000023 803E[0D00]00                    CMP     byte [jogador2+JENERGIA], 0
+   119 00000028 740D                            JE      vfr_compara
+   120 0000002A 813E[0000]B400                  CMP     WORD [segundos], TEMPO_ROUND
+   121 00000030 7C6A                            JL      vfr_fim                     ; round continua
+   122 00000032 C606[0500]02                    MOV     byte [motivo_fim], MOTIVO_TEMPO
+   123                                  
+   124                                  vfr_compara:
+   125                                          ; ---- 1. energia
+   126 00000037 A0[0D00]                        MOV     AL, [jogador1+JENERGIA]
+   127 0000003A 3A06[0D00]                      CMP     AL, [jogador2+JENERGIA]
+   128 0000003E 772A                            JA      vfr_p1
+   129 00000040 7240                            JB      vfr_p2
+   130                                  
+   131                                          ; ---- 2. ultimo golpe valido
+   132 00000042 803E[0600]01                    CMP     byte [ultimo_golpe], 1
+   133 00000047 7421                            JE      vfr_p1
+   134 00000049 803E[0600]02                    CMP     byte [ultimo_golpe], 2
+   135 0000004E 7432                            JE      vfr_p2
+   136                                  
+   137                                          ; ---- 3. dominio do centro da arena
+   138 00000050 A1[0000]                        MOV     AX, [jogador1+JX]
+   139 00000053 2D4001                          SUB     AX, 320
+   140 00000056 7902                            JNS     vfr_a1
+   141 00000058 F7D8                            NEG     AX
+   142                                  vfr_a1:
+   143 0000005A 8B1E[0000]                      MOV     BX, [jogador2+JX]
+   144 0000005E 81EB4001                        SUB     BX, 320
+   145 00000062 7902                            JNS     vfr_a2
+   146 00000064 F7DB                            NEG     BX
+   147                                  vfr_a2:
+   148 00000066 39D8                            CMP     AX, BX
+   149 00000068 7718                            JA      vfr_p2                      ; J2 mais perto do centro
+   150                                          ; ---- 4. persistindo o empate, J1 (cai em vfr_p1)
+   151                                  
+   152                                  vfr_p1:
+   153 0000006A C606[0400]01                    MOV     byte [vencedor_round], 1
+   154 0000006F FE06[0000]                      INC     byte [rounds_p1]
+   155 00000073 803E[0000]02                    CMP     byte [rounds_p1], ROUNDS_VITORIA
+   156 00000078 721D                            JB      vfr_acabou
+   157 0000007A C606[0300]01                    MOV     byte [vencedor], 1
+   158 0000007F E91500                          JMP     vfr_acabou
+   159                                  
+   160                                  vfr_p2:
+   161 00000082 C606[0400]02                    MOV     byte [vencedor_round], 2
+   162 00000087 FE06[0100]                      INC     byte [rounds_p2]
+   163 0000008B 803E[0100]02                    CMP     byte [rounds_p2], ROUNDS_VITORIA
+   164 00000090 7205                            JB      vfr_acabou
+   165 00000092 C606[0300]02                    MOV     byte [vencedor], 2
+   166                                  
+   167                                  vfr_acabou:
+   168 00000097 C606[0200]01                    MOV     byte [round_acabou], 1
+   169                                  vfr_fim:
+   170 0000009C 5B                              POP     BX
+   171 0000009D 58                              POP     AX
+   172 0000009E C3                              RET
+   173                                  
+   174                                  ; =============================================================================
+   175                                  ; trata_eventos
+   176                                  ; Consome a fila de eventos do teclado durante a luta:
+   177                                  ;   P     -> pausa (bloqueia ate novo P)
+   178                                  ;   Q/ESC -> confirmacao de saida (Y define sair_flag = 1)
+   179                                  ; As demais teclas sao ignoradas aqui (o movimento usa a tabela de estado).
+   180                                  ; =============================================================================
+   181                                  trata_eventos:
+   182 0000009F 50                              PUSH    AX
+   183                                  te_prox:
+   184 000000A0 803E[0700]00                    CMP     byte [sair_flag], 0
+   185 000000A5 7526                            JNE     te_fim
+   186 000000A7 E8(0000)                        CALL    le_evento
+   187 000000AA 7221                            JC      te_fim                      ; fila vazia
+   188 000000AC 3C19                            CMP     AL, TEC_P
+   189 000000AE 740B                            JE      te_pausa
+   190 000000B0 3C10                            CMP     AL, TEC_Q
+   191 000000B2 740D                            JE      te_sair
+   192 000000B4 3C01                            CMP     AL, TEC_ESC
+   193 000000B6 7409                            JE      te_sair
+   194 000000B8 E9E5FF                          JMP     te_prox
+   195                                  te_pausa:
+   196 000000BB E81100                          CALL    pausa
+   197 000000BE E9DFFF                          JMP     te_prox
+   198                                  te_sair:
+   199 000000C1 E85E00                          CALL    confirma_saida
+   200 000000C4 3C01                            CMP     AL, 1
+   201 000000C6 75D8                            JNE     te_prox
+   202 000000C8 C606[0700]01                    MOV     byte [sair_flag], 1
+   203                                  te_fim:
+   204 000000CD 58                              POP     AX
+   205 000000CE C3                              RET
+   206                                  
+   207                                  ; =============================================================================
+   208                                  ; pausa
+   209                                  ; Congela o cronometro do round, mostra "PAUSED" e espera um novo P.
+   210                                  ; Q/ESC continuam funcionando durante a pausa (com confirmacao).
+   211                                  ; Ao retomar, apaga o aviso e devolve o cronometro ao estado anterior; como
+   212                                  ; o laco principal so processa um tique por vez, o jogo continua exatamente
+   213                                  ; do ponto em que parou.
+   214                                  ; =============================================================================
+   215                                  pausa:
+   216 000000CF 50                              PUSH    AX
+   217 000000D0 52                              PUSH    DX
+   218 000000D1 56                              PUSH    SI
+   219                                  
+   220 000000D2 A0[0000]                        MOV     AL, [relogio_ativo]
+   221 000000D5 50                              PUSH    AX                          ; guarda o estado do cronometro
+   222 000000D6 C606[0000]00                    MOV     byte [relogio_ativo], 0     ; tempo de pausa nao conta
+   223                                  
+   224 000000DB C606[0000]0E                    MOV     byte [cor], amarelo
+   225 000000E0 BE[0800]                        MOV     SI, str_pausado
+   226 000000E3 B606                            MOV     DH, LIN_MSG
+   227 000000E5 E8(0000)                        CALL    msg_centro
+   228 000000E8 C606[0000]07                    MOV     byte [cor], branco
+   229 000000ED BE[0E00]                        MOV     SI, str_continuar
+   230 000000F0 B607                            MOV     DH, LIN_MSG + 1
+   231 000000F2 E8(0000)                        CALL    msg_centro
+   232                                  
+   233                                  pa_espera:
+   234 000000F5 E8(0000)                        CALL    espera_evento               ; AL = tecla (HLT enquanto nada chega)
+   235 000000F8 3C19                            CMP     AL, TEC_P
+   236 000000FA 7414                            JE      pa_retoma
+   237 000000FC 3C10                            CMP     AL, TEC_Q
+   238 000000FE 7404                            JE      pa_sair
+   239 00000100 3C01                            CMP     AL, TEC_ESC
+   240 00000102 75F1                            JNE     pa_espera
+   241                                  pa_sair:
+   242 00000104 E81B00                          CALL    confirma_saida
+   243 00000107 3C01                            CMP     AL, 1
+   244 00000109 75EA                            JNE     pa_espera                   ; N: continua pausado
+   245 0000010B C606[0700]01                    MOV     byte [sair_flag], 1
    246                                  
-   247                                  vfr_p1:
-   248 0000006A C606[0400]01                    MOV     byte [vencedor_round], 1
-   249 0000006F FE06[0000]                      INC     byte [rounds_p1]
-   250 00000073 803E[0000]02                    CMP     byte [rounds_p1], ROUNDS_VITORIA
-   251 00000078 721D                            JB      vfr_acabou
-   252 0000007A C606[0300]01                    MOV     byte [vencedor], 1
-   253 0000007F E91500                          JMP     vfr_acabou
-   254                                  
-   255                                  vfr_p2:
-   256 00000082 C606[0400]02                    MOV     byte [vencedor_round], 2
-   257 00000087 FE06[0100]                      INC     byte [rounds_p2]
-   258 0000008B 803E[0100]02                    CMP     byte [rounds_p2], ROUNDS_VITORIA
-   259 00000090 7205                            JB      vfr_acabou
-   260 00000092 C606[0300]02                    MOV     byte [vencedor], 2
-   261                                  
-   262                                  vfr_acabou:
-   263 00000097 C606[0200]01                    MOV     byte [round_acabou], 1
-   264                                  vfr_fim:
-   265 0000009C 5B                              POP     BX
-   266 0000009D 58                              POP     AX
-   267 0000009E C3                              RET
-   268                                  
-   269                                  ; =============================================================================
-   270                                  ; trata_eventos
-   271                                  ; Consome a fila de eventos do teclado durante a luta:
-   272                                  ;   P     -> pausa (bloqueia ate novo P)
-   273                                  ;   Q/ESC -> confirmacao de saida (Y define sair_flag = 1)
-   274                                  ; As demais teclas sao ignoradas aqui (o movimento usa a tabela de estado).
-   275                                  ; =============================================================================
-   276                                  trata_eventos:
-   277 0000009F 50                              PUSH    AX
-   278                                  te_prox:
-   279 000000A0 803E[0700]00                    CMP     byte [sair_flag], 0
-   280 000000A5 7526                            JNE     te_fim
-   281 000000A7 E8(0000)                        CALL    le_evento
-   282 000000AA 7221                            JC      te_fim                      ; fila vazia
-   283 000000AC 3C19                            CMP     AL, TEC_P
-   284 000000AE 740B                            JE      te_pausa
-   285 000000B0 3C10                            CMP     AL, TEC_Q
-   286 000000B2 740D                            JE      te_sair
-   287 000000B4 3C01                            CMP     AL, TEC_ESC
-   288 000000B6 7409                            JE      te_sair
-   289 000000B8 E9E5FF                          JMP     te_prox
-   290                                  te_pausa:
-   291 000000BB E81100                          CALL    pausa
-   292 000000BE E9DFFF                          JMP     te_prox
-   293                                  te_sair:
-   294 000000C1 E85E00                          CALL    confirma_saida
-   295 000000C4 3C01                            CMP     AL, 1
-   296 000000C6 75D8                            JNE     te_prox
-   297 000000C8 C606[0700]01                    MOV     byte [sair_flag], 1
-   298                                  te_fim:
-   299 000000CD 58                              POP     AX
-   300 000000CE C3                              RET
-   301                                  
-   302                                  ; =============================================================================
-   303                                  ; pausa
-   304                                  ; Congela o cronometro do round, mostra "PAUSED" e espera um novo P.
-   305                                  ; Q/ESC continuam funcionando durante a pausa (com confirmacao).
-   306                                  ; Ao retomar, apaga o aviso e devolve o cronometro ao estado anterior; como
-   307                                  ; o laco principal so processa um tique por vez, o jogo continua exatamente
-   308                                  ; do ponto em que parou.
-   309                                  ; =============================================================================
-   310                                  pausa:
-   311 000000CF 50                              PUSH    AX
-   312 000000D0 52                              PUSH    DX
-   313 000000D1 56                              PUSH    SI
-   314                                  
-   315 000000D2 A0[0000]                        MOV     AL, [relogio_ativo]
-   316 000000D5 50                              PUSH    AX                          ; guarda o estado do cronometro
-   317 000000D6 C606[0000]00                    MOV     byte [relogio_ativo], 0     ; tempo de pausa nao conta
+   247                                  pa_retoma:
+   248 00000110 B606                            MOV     DH, LIN_MSG
+   249 00000112 E8(0000)                        CALL    apaga_linha
+   250 00000115 B607                            MOV     DH, LIN_MSG + 1
+   251 00000117 E8(0000)                        CALL    apaga_linha
+   252                                  
+   253 0000011A 58                              POP     AX
+   254 0000011B A2[0000]                        MOV     [relogio_ativo], AL         ; restaura o cronometro
+   255 0000011E 5E                              POP     SI
+   256 0000011F 5A                              POP     DX
+   257 00000120 58                              POP     AX
+   258 00000121 C3                              RET
+   259                                  
+   260                                  ; =============================================================================
+   261                                  ; confirma_saida
+   262                                  ; Mostra "Sair? (Y/N)" na linha LIN_CONFIRMA e espera Y ou N.
+   263                                  ; O cronometro fica congelado enquanto a pergunta estiver na tela.
+   264                                  ; Saida: AL = 1 se o usuario confirmou (Y), AL = 0 se desistiu (N).
+   265                                  ; A mensagem e apagada antes de retornar (volta ao estado anterior).
+   266                                  ; =============================================================================
+   267                                  confirma_saida:
+   268 00000122 53                              PUSH    BX
+   269 00000123 52                              PUSH    DX
+   270 00000124 56                              PUSH    SI
+   271                                  
+   272 00000125 8A1E[0000]                      MOV     BL, [relogio_ativo]         ; guarda o estado do cronometro
+   273 00000129 C606[0000]00                    MOV     byte [relogio_ativo], 0
+   274                                  
+   275 0000012E 8A3E[0000]                      MOV     BH, [cor]                   ; preserva a cor corrente
+   276 00000132 C606[0000]0E                    MOV     byte [cor], amarelo
+   277 00000137 BE[0F00]                        MOV     SI, str_sair
+   278 0000013A B61B                            MOV     DH, LIN_CONFIRMA
+   279 0000013C E8(0000)                        CALL    msg_centro
+   280                                  
+   281                                  cs_espera:
+   282 0000013F E8(0000)                        CALL    espera_evento
+   283 00000142 3C15                            CMP     AL, TEC_Y
+   284 00000144 7409                            JE      cs_sim
+   285 00000146 3C31                            CMP     AL, TEC_N
+   286 00000148 75F5                            JNE     cs_espera
+   287 0000014A B000                            MOV     AL, 0
+   288 0000014C E90200                          JMP     cs_solta
+   289                                  cs_sim:
+   290 0000014F B001                            MOV     AL, 1
+   291                                  
+   292                                          ; ---- espera a tecla ser solta: N tambem e o chute do J2, e sem isso
+   293                                          ;      o jogo voltaria com a tecla "pressionada" e o J2 chutaria.
+   294                                  cs_solta:
+   295 00000151 53                              PUSH    BX
+   296 00000152 BB3100                          MOV     BX, TEC_N
+   297 00000155 3C00                            CMP     AL, 0
+   298 00000157 7403                            JE      cs_aguarda_solta
+   299 00000159 BB1500                          MOV     BX, TEC_Y
+   300                                  cs_aguarda_solta:
+   301 0000015C 80BF[0000]00                    CMP     byte [teclas+BX], 0
+   302 00000161 7404                            JE      cs_soltou
+   303 00000163 F4                              HLT
+   304 00000164 E9F5FF                          JMP     cs_aguarda_solta
+   305                                  cs_soltou:
+   306 00000167 5B                              POP     BX
+   307 00000168 E8(0000)                        CALL    limpa_eventos               ; descarta o BREAK e repeticoes
+   308                                  cs_fim:
+   309 0000016B B61B                            MOV     DH, LIN_CONFIRMA
+   310 0000016D E8(0000)                        CALL    apaga_linha
+   311 00000170 883E[0000]                      MOV     [cor], BH
+   312 00000174 881E[0000]                      MOV     [relogio_ativo], BL         ; restaura o cronometro
+   313                                  
+   314 00000178 5E                              POP     SI
+   315 00000179 5A                              POP     DX
+   316 0000017A 5B                              POP     BX
+   317 0000017B C3                              RET
    318                                  
-   319 000000DB C606[0000]0E                    MOV     byte [cor], amarelo
-   320 000000E0 BE[0800]                        MOV     SI, str_pausado
-   321 000000E3 B606                            MOV     DH, LIN_MSG
-   322 000000E5 E8(0000)                        CALL    msg_centro
-   323 000000E8 C606[0000]07                    MOV     byte [cor], branco
-   324 000000ED BE[0E00]                        MOV     SI, str_continuar
-   325 000000F0 B607                            MOV     DH, LIN_MSG + 1
-   326 000000F2 E8(0000)                        CALL    msg_centro
-   327                                  
-   328                                  pa_espera:
-   329 000000F5 E8(0000)                        CALL    espera_evento               ; AL = tecla (HLT enquanto nada chega)
-   330 000000F8 3C19                            CMP     AL, TEC_P
-   331 000000FA 7414                            JE      pa_retoma
-   332 000000FC 3C10                            CMP     AL, TEC_Q
-   333 000000FE 7404                            JE      pa_sair
-   334 00000100 3C01                            CMP     AL, TEC_ESC
-   335 00000102 75F1                            JNE     pa_espera
-   336                                  pa_sair:
-   337 00000104 E81B00                          CALL    confirma_saida
-   338 00000107 3C01                            CMP     AL, 1
-   339 00000109 75EA                            JNE     pa_espera                   ; N: continua pausado
-   340 0000010B C606[0700]01                    MOV     byte [sair_flag], 1
-   341                                  
-   342                                  pa_retoma:
-   343 00000110 B606                            MOV     DH, LIN_MSG
-   344 00000112 E8(0000)                        CALL    apaga_linha
-   345 00000115 B607                            MOV     DH, LIN_MSG + 1
-   346 00000117 E8(0000)                        CALL    apaga_linha
-   347                                  
-   348 0000011A 58                              POP     AX
-   349 0000011B A2[0000]                        MOV     [relogio_ativo], AL         ; restaura o cronometro
-   350 0000011E 5E                              POP     SI
-   351 0000011F 5A                              POP     DX
-   352 00000120 58                              POP     AX
-   353 00000121 C3                              RET
+   319                                  ; =============================================================================
+   320                                  ; aguarda
+   321                                  ; Entrada: CX = numero de tiques (~55 ms cada) a esperar.
+   322                                  ; Espera usando o contador da INT 8h (HLT entre as interrupcoes), sem laco
+   323                                  ; de atraso. Durante a espera, Q/ESC continuam pedindo confirmacao; se o
+   324                                  ; usuario confirmar, sair_flag = 1 e a rotina retorna imediatamente.
+   325                                  ; =============================================================================
+   326                                  aguarda:
+   327 0000017C 50                              PUSH    AX
+   328 0000017D 53                              PUSH    BX
+   329 0000017E 8B1E[0000]                      MOV     BX, [tique_jogo]            ; tique inicial
+   330                                  ag_loop:
+   331 00000182 E8(0000)                        CALL    le_evento
+   332 00000185 7217                            JC      ag_tempo
+   333 00000187 3C10                            CMP     AL, TEC_Q
+   334 00000189 7404                            JE      ag_sair
+   335 0000018B 3C01                            CMP     AL, TEC_ESC
+   336 0000018D 750F                            JNE     ag_tempo
+   337                                  ag_sair:
+   338 0000018F E890FF                          CALL    confirma_saida
+   339 00000192 3C01                            CMP     AL, 1
+   340 00000194 7508                            JNE     ag_tempo
+   341 00000196 C606[0700]01                    MOV     byte [sair_flag], 1
+   342 0000019B E90D00                          JMP     ag_fim
+   343                                  ag_tempo:
+   344 0000019E A1[0000]                        MOV     AX, [tique_jogo]
+   345 000001A1 29D8                            SUB     AX, BX                      ; tiques decorridos
+   346 000001A3 39C8                            CMP     AX, CX
+   347 000001A5 7304                            JAE     ag_fim
+   348 000001A7 F4                              HLT                                 ; dorme ate a proxima interrupcao
+   349 000001A8 E9D7FF                          JMP     ag_loop
+   350                                  ag_fim:
+   351 000001AB 5B                              POP     BX
+   352 000001AC 58                              POP     AX
+   353 000001AD C3                              RET
    354                                  
    355                                  ; =============================================================================
-   356                                  ; confirma_saida
-   357                                  ; Mostra "Deseja realmente sair? (Y/N)" na linha LIN_CONFIRMA e espera Y ou N.
-   358                                  ; O cronometro fica congelado enquanto a pergunta estiver na tela.
-   359                                  ; Saida: AL = 1 se o usuario confirmou (Y), AL = 0 se desistiu (N).
-   360                                  ; A mensagem e apagada antes de retornar (volta ao estado anterior).
-   361                                  ; =============================================================================
-   362                                  confirma_saida:
-   363 00000122 53                              PUSH    BX
-   364 00000123 52                              PUSH    DX
-   365 00000124 56                              PUSH    SI
+   356                                  segment data public class=DATA
+   357                                  
+   358 00000000 00                      rounds_p1       DB      0           ; rounds vencidos pelo Jogador 1
+   359 00000001 00                      rounds_p2       DB      0           ; rounds vencidos pelo Jogador 2
+   360 00000002 00                      round_acabou    DB      0           ; 1 = o round atual terminou
+   361 00000003 00                      vencedor        DB      0           ; 0 = partida em andamento, 1/2 = campeao
+   362 00000004 00                      vencedor_round  DB      0           ; quem venceu o ultimo round (1/2)
+   363 00000005 00                      motivo_fim      DB      0           ; MOTIVO_KO ou MOTIVO_TEMPO
+   364 00000006 00                      ultimo_golpe    DB      0           ; quem acertou o ultimo golpe (0 = ninguem)
+   365 00000007 00                      sair_flag       DB      0           ; 1 = usuario confirmou a saida
    366                                  
-   367 00000125 8A1E[0000]                      MOV     BL, [relogio_ativo]         ; guarda o estado do cronometro
-   368 00000129 C606[0000]00                    MOV     byte [relogio_ativo], 0
-   369                                  
-   370 0000012E 8A3E[0000]                      MOV     BH, [cor]                   ; preserva a cor corrente
-   371 00000132 C606[0000]0E                    MOV     byte [cor], amarelo
-   372 00000137 BE[0F00]                        MOV     SI, str_sair
-   373 0000013A B61B                            MOV     DH, LIN_CONFIRMA
-   374 0000013C E8(0000)                        CALL    msg_centro
-   375                                  
-   376                                  cs_espera:
-   377 0000013F E8(0000)                        CALL    espera_evento
-   378 00000142 3C15                            CMP     AL, TEC_Y
-   379 00000144 7409                            JE      cs_sim
-   380 00000146 3C31                            CMP     AL, TEC_N
-   381 00000148 75F5                            JNE     cs_espera
-   382 0000014A B000                            MOV     AL, 0
-   383 0000014C E90200                          JMP     cs_solta
-   384                                  cs_sim:
-   385 0000014F B001                            MOV     AL, 1
-   386                                  
-   387                                          ; ---- espera a tecla ser solta: N tambem e o chute do J2, e sem isso
-   388                                          ;      o jogo voltaria com a tecla "pressionada" e o J2 chutaria.
-   389                                  cs_solta:
-   390 00000151 53                              PUSH    BX
-   391 00000152 BB3100                          MOV     BX, TEC_N
-   392 00000155 3C00                            CMP     AL, 0
-   393 00000157 7403                            JE      cs_aguarda_solta
-   394 00000159 BB1500                          MOV     BX, TEC_Y
-   395                                  cs_aguarda_solta:
-   396 0000015C 80BF[0000]00                    CMP     byte [teclas+BX], 0
-   397 00000161 7404                            JE      cs_soltou
-   398 00000163 F4                              HLT
-   399 00000164 E9F5FF                          JMP     cs_aguarda_solta
-   400                                  cs_soltou:
-   401 00000167 5B                              POP     BX
-   402 00000168 E8(0000)                        CALL    limpa_eventos               ; descarta o BREAK e repeticoes
-   403                                  cs_fim:
-   404 0000016B B61B                            MOV     DH, LIN_CONFIRMA
-   405 0000016D E8(0000)                        CALL    apaga_linha
-   406 00000170 883E[0000]                      MOV     [cor], BH
-   407 00000174 881E[0000]                      MOV     [relogio_ativo], BL         ; restaura o cronometro
-   408                                  
-   409 00000178 5E                              POP     SI
-   410 00000179 5A                              POP     DX
-   411 0000017A 5B                              POP     BX
-   412 0000017B C3                              RET
-   413                                  
-   414                                  ; =============================================================================
-   415                                  ; aguarda
-   416                                  ; Entrada: CX = numero de tiques (~55 ms cada) a esperar.
-   417                                  ; Espera usando o contador da INT 8h (HLT entre as interrupcoes), sem laco
-   418                                  ; de atraso. Durante a espera, Q/ESC continuam pedindo confirmacao; se o
-   419                                  ; usuario confirmar, sair_flag = 1 e a rotina retorna imediatamente.
-   420                                  ; =============================================================================
-   421                                  aguarda:
-   422 0000017C 50                              PUSH    AX
-   423 0000017D 53                              PUSH    BX
-   424 0000017E 8B1E[0000]                      MOV     BX, [tique_jogo]            ; tique inicial
-   425                                  ag_loop:
-   426 00000182 E8(0000)                        CALL    le_evento
-   427 00000185 7217                            JC      ag_tempo
-   428 00000187 3C10                            CMP     AL, TEC_Q
-   429 00000189 7404                            JE      ag_sair
-   430 0000018B 3C01                            CMP     AL, TEC_ESC
-   431 0000018D 750F                            JNE     ag_tempo
-   432                                  ag_sair:
-   433 0000018F E890FF                          CALL    confirma_saida
-   434 00000192 3C01                            CMP     AL, 1
-   435 00000194 7508                            JNE     ag_tempo
-   436 00000196 C606[0700]01                    MOV     byte [sair_flag], 1
-   437 0000019B E90D00                          JMP     ag_fim
-   438                                  ag_tempo:
-   439 0000019E A1[0000]                        MOV     AX, [tique_jogo]
-   440 000001A1 29D8                            SUB     AX, BX                      ; tiques decorridos
-   441 000001A3 39C8                            CMP     AX, CX
-   442 000001A5 7304                            JAE     ag_fim
-   443 000001A7 F4                              HLT                                 ; dorme ate a proxima interrupcao
-   444 000001A8 E9D7FF                          JMP     ag_loop
-   445                                  ag_fim:
-   446 000001AB 5B                              POP     BX
-   447 000001AC 58                              POP     AX
-   448 000001AD C3                              RET
-   449                                  
-   450                                  ; =============================================================================
-   451                                  segment data public class=DATA
-   452                                  
-   453 00000000 00                      rounds_p1       DB      0           ; rounds vencidos pelo Jogador 1
-   454 00000001 00                      rounds_p2       DB      0           ; rounds vencidos pelo Jogador 2
-   455 00000002 00                      round_acabou    DB      0           ; 1 = o round atual terminou
-   456 00000003 00                      vencedor        DB      0           ; 0 = partida em andamento, 1/2 = campeao
-   457 00000004 00                      vencedor_round  DB      0           ; quem venceu o ultimo round (1/2)
-   458 00000005 00                      motivo_fim      DB      0           ; MOTIVO_KO ou MOTIVO_TEMPO
-   459 00000006 00                      ultimo_golpe    DB      0           ; quem acertou o ultimo golpe (0 = ninguem)
-   460 00000007 00                      sair_flag       DB      0           ; 1 = usuario confirmou a saida
-   461                                  
-   462 00000008 504155534500            str_pausado     DB      'PAUSE', 0
-   463 0000000E 00                      str_continuar   DB      '', 0
-   464 0000000F 536169723F2028592F-     str_sair        DB      'Sair? (Y/N)', 0
-   465 00000018 4E2900             
+   367 00000008 504155534500            str_pausado     DB      'PAUSE', 0
+   368 0000000E 00                      str_continuar   DB      '', 0
+   369 0000000F 536169723F2028592F-     str_sair        DB      'Sair? (Y/N)', 0
+   370 00000018 4E2900             

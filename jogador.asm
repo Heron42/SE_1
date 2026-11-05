@@ -1,34 +1,7 @@
-; =============================================================================
-; jogador.asm  -  Lutadores: controles, movimento, pulo, animacao e desenho
-; -----------------------------------------------------------------------------
-; Controles (lidos da tabela de estado mantida pela ISR do teclado):
-;   Acao       Jogador 1   Jogador 2
-;   Esquerda       A           <-
-;   Direita        D           ->
-;   Pular          W           seta cima
-;   Abaixar        S           seta baixo
-;   Chute          R           N
-;   Soco           T           M
-;
-; Mecanica de orientacao:
-;   - Os lutadores estao SEMPRE virados um para o outro (atualiza_direcao).
-;   - No chao, um nao atravessa o outro (DIST_MIN).
-;   - Pulando, o lutador pode passar por cima do adversario e trocar de lado;
-;     ao pousar sobreposto, ele e empurrado para o lado em que caiu.
-;
-; Rotinas publicas:
-;   reseta_lutadores, le_controles, fisica_jogador, atualiza_direcao,
-;   atualiza_animacao, houve_mudanca, pinta_jogador, apaga_jogador
-; Dados publicos:
-;   jogador1, jogador2 (estrutura de 20 bytes; campos JX ... JPULO abaixo)
-; =============================================================================
+; jogador.asm - Lutadores: controles, movimento, pulo, animacao e desenho
 
-; ------------------------------- Constantes (EQU) -----------------------------
-; Constantes usadas por este modulo. Um EQU nao ocupa memoria: o montador
-; troca o nome pelo valor. As que aparecem em mais de um modulo (estrutura do
-; jogador, cores, scan codes, regras) precisam ter o MESMO valor em todos.
 
-; ------------------------------- Scan codes (make) ----------------------------
+; Scan codes
 TEC_W           EQU     11h
 TEC_R           EQU     13h
 TEC_T           EQU     14h
@@ -37,53 +10,51 @@ TEC_S           EQU     1Fh
 TEC_D           EQU     20h
 TEC_N           EQU     31h
 TEC_M           EQU     32h
-TEC_CIMA        EQU     48h         ; seta para cima   (chega apos o prefixo E0h)
-TEC_ESQ         EQU     4Bh         ; seta esquerda    (apos E0h)
-TEC_DIR         EQU     4Dh         ; seta direita     (apos E0h)
-TEC_BAIXO       EQU     50h         ; seta para baixo  (apos E0h)
+TEC_CIMA        EQU     48h        
+TEC_ESQ         EQU     4Bh         
+TEC_DIR         EQU     4Dh        
+TEC_BAIXO       EQU     50h        
 
-; ------------------------------- Cores (paleta padrao VGA) --------------------
+; Cores
                                     ; I R G B
 preto           EQU     0           ; 0 0 0 0
 vermelho        EQU     4           ; 0 1 0 0
 azul_claro      EQU     9           ; 1 0 0 1
 
-; ------------------------------- Regras do jogo -------------------------------
-ENERGIA_INICIAL EQU     10          ; golpes validos para perder o round
+ENERGIA_INICIAL EQU     10 
 
-; ------------------------------- Fisica dos lutadores -------------------------
-VELOCIDADE      EQU     4           ; pixels por tique (~73 px/s)
-LIM_ESQ         EQU     40          ; menor X permitido para o centro do boneco
-LIM_DIR         EQU     598         ; maior X permitido (braco vai ate +27)
+; Fisica dos lutadores
+VELOCIDADE      EQU     4        
+LIM_ESQ         EQU     40          
+LIM_DIR         EQU     598        
 DIST_MIN        EQU     50          ; distancia minima entre os dois lutadores
 Y_CHAO          EQU     156         ; Y dos ombros com o lutador no chao
-VEL_PULO        EQU     22          ; velocidade vertical inicial do pulo (px/tique)
+VEL_PULO        EQU     22          ; velocidade vertical inicial do pulo
 GRAVIDADE       EQU     3           ; reducao de VY a cada tique
 X_INICIAL_J1    EQU     150
 X_INICIAL_J2    EQU     490
 
-; ------------------------------- Estados de animacao --------------------------
+; Estados de animacao
 EST_IDLE        EQU     0
 EST_ANDA        EQU     1
 EST_SOCO        EQU     2
 EST_CHUTE       EQU     3
 EST_ABAIXA      EQU     4
 
-; ------------------------------- Estrutura de um jogador (20 bytes) -----------
-; Acesse sempre como [SI+campo] ou [jogadorN+campo].
-JX              EQU     0           ; dw  posicao X atual (centro do tronco)
-JY              EQU     2           ; dw  posicao Y atual (ombros)
+; Estrutura de um jogador
+JX              EQU     0           ; dw  posicao X atual
+JY              EQU     2           ; dw  posicao Y atual
 JXANT           EQU     4           ; dw  X onde foi desenhado por ultimo
 JYANT           EQU     6           ; dw  Y onde foi desenhado por ultimo
 JFRAME          EQU     8           ; db  frame atual da animacao
 JFRAMEANT       EQU     9           ; db  frame desenhado por ultimo
-JDIR            EQU     10          ; db  0 = olha p/ direita, 1 = p/ esquerda
+JDIR            EQU     10          ; db  0 = odireita, 1 = esquerda
 JDIRANT         EQU     11          ; db  direcao desenhada por ultimo
-JCOR            EQU     12          ; db  cor do lutador (escolhida na selecao)
-JENERGIA        EQU     13          ; db  energia (comeca em ENERGIA_INICIAL)
-JESTADO         EQU     14          ; db  estado de animacao (EST_*)
+JCOR            EQU     12          ; db  cor do lutador =
+JENERGIA        EQU     13          ; db  energia=
+JESTADO         EQU     14          ; db  estado de animacao=
 JESTADOANT      EQU     15          ; db  estado desenhado por ultimo
-JVY             EQU     16          ; dw  velocidade vertical (positiva = sobe)
+JVY             EQU     16          ; dw  velocidade vertical
 JPULO           EQU     18          ; db  1 = no ar, 0 = no chao
 
 global  jogador1
@@ -102,11 +73,8 @@ extern  desenha_jogador             ; graficos.asm
 
 segment code public class=CODE
 
-; =============================================================================
+
 ; reseta_lutadores
-; Coloca os dois lutadores na posicao inicial, com energia cheia, parados.
-; A cor (JCOR) NAO e alterada: e a escolhida na tela de selecao.
-; =============================================================================
 reseta_lutadores:
         PUSH    SI
         PUSH    AX
@@ -139,12 +107,7 @@ reseta_um:
         MOV     byte [SI+JPULO], 0
         RET
 
-; =============================================================================
 ; le_controles
-; Le a tabela de estado do teclado e aplica os comandos dos dois jogadores.
-; Como a tabela guarda cada tecla separadamente, os dois jogadores podem
-; segurar suas teclas ao mesmo tempo sem um bloquear o outro.
-; =============================================================================
 le_controles:
         PUSH    SI
         PUSH    DI
@@ -171,10 +134,8 @@ le_controles:
         POP     SI
         RET
 
-; -----------------------------------------------------------------------------
 ; tecla_ativa
 ; Entrada: BL = scan code. Saida: ZF = 0 se a tecla esta pressionada.
-; -----------------------------------------------------------------------------
 tecla_ativa:
         PUSH    BX
         XOR     BH, BH
@@ -182,16 +143,8 @@ tecla_ativa:
         POP     BX
         RET
 
-; -----------------------------------------------------------------------------
 ; controla_jogador
 ; Entrada: SI = jogador, DI = adversario, tecla_* = mapa de teclas dele.
-; Regras:
-;   - durante um soco ou chute os comandos ficam bloqueados ate o fim do golpe;
-;   - abaixado o lutador nao anda, mas pode atacar;
-;   - se nenhuma tecla for usada, volta ao estado parado (idle);
-;   - segurar a tecla de soco/chute repete o golpe ao fim de cada animacao.
-; Preserva todos os registradores.
-; -----------------------------------------------------------------------------
 controla_jogador:
         PUSH    AX
         PUSH    BX
@@ -207,14 +160,14 @@ cj_fim_jmp:
 cj_livre:
         XOR     CL, CL                      ; CL = teclas usadas neste tique
 
-        ; ---- pular
+        ; pular
         MOV     BL, [tecla_cima]
         CALL    tecla_ativa
         JZ      cj_abaixa
         INC     CL
         CALL    inicia_pulo
 
-        ; ---- abaixar (so no chao; abaixado nao anda)
+        ; abaixar
 cj_abaixa:
         MOV     BL, [tecla_baixo]
         CALL    tecla_ativa
@@ -228,7 +181,7 @@ cj_abaixa:
         MOV     byte [SI+JFRAME], 0
         JMP     cj_soco
 
-        ; ---- esquerda
+        ; esquerda
 cj_esq:
         MOV     BL, [tecla_esq]
         CALL    tecla_ativa
@@ -238,7 +191,7 @@ cj_esq:
         MOV     byte [SI+JESTADO], EST_ANDA
         CALL    mover_jogador
 
-        ; ---- direita
+        ; direita
 cj_dir:
         MOV     BL, [tecla_dir]
         CALL    tecla_ativa
@@ -248,7 +201,7 @@ cj_dir:
         MOV     byte [SI+JESTADO], EST_ANDA
         CALL    mover_jogador
 
-        ; ---- soco (tem prioridade sobre o chute se os dois forem apertados)
+        ; soco 
 cj_soco:
         MOV     BL, [tecla_soco]
         CALL    tecla_ativa
@@ -257,7 +210,7 @@ cj_soco:
         MOV     byte [SI+JFRAME], 0
         JMP     cj_fim
 
-        ; ---- chute
+        ; chute
 cj_chute:
         MOV     BL, [tecla_chute]
         CALL    tecla_ativa
@@ -266,7 +219,7 @@ cj_chute:
         MOV     byte [SI+JFRAME], 0
         JMP     cj_fim
 
-        ; ---- nenhuma tecla de acao: volta a ficar parado
+        ; nenhuma tecla de acao: volta a ficar parado
 cj_idle:
         CMP     CL, 0
         JNE     cj_fim
@@ -279,15 +232,8 @@ cj_fim:
         POP     AX
         RET
 
-; =============================================================================
 ; mover_jogador
-; Entrada: SI = jogador que se move, DI = adversario, AX = deslocamento em X
-; So aplica o movimento se:
-;   - o jogador continuar dentro dos limites da arena, e
-;   - a distancia ate o adversario continuar >= DIST_MIN (nao atravessa).
-; Se QUALQUER um dos dois estiver no ar, a distancia nao e verificada:
-; e assim que um lutador passa por cima do outro e troca de lado.
-; =============================================================================
+; Entrada: SI = jogador, DI = adversario, AX = deslocamento em X
 mover_jogador:
         PUSH    AX
         PUSH    BX
@@ -314,28 +260,18 @@ mj_fim:
         POP     AX
         RET
 
-; =============================================================================
 ; inicia_pulo
-; Entrada: SI = jogador. So pula se estiver no chao.
-; =============================================================================
+; Entrada: SI = jogador
 inicia_pulo:
         CMP     byte [SI+JPULO], 0
         JNE     ip_fim                      ; ja esta no ar: ignora
         MOV     byte [SI+JPULO], 1
-        MOV     WORD [SI+JVY], VEL_PULO     ; velocidade vertical inicial (para cima)
+        MOV     WORD [SI+JVY], VEL_PULO     ; velocidade vertical inicial
 ip_fim:
         RET
 
-; =============================================================================
 ; fisica_jogador
-; Entrada: SI = jogador, DI = adversario. Executada uma vez por tique.
-;   Y  <- Y + VY
-;   VY <- VY - GRAVIDADE
-; Ao tocar o chao (Y <= Y_CHAO): fixa Y no chao, zera VY, encerra o pulo
-; e resolve uma eventual sobreposicao com o adversario.
-; Com VEL_PULO = 22 e GRAVIDADE = 3 o pulo sobe 92 px (22+19+...+1) e dura
-; 16 tiques (~0,9 s); no topo, os pes ficam na altura da cabeca do adversario.
-; =============================================================================
+; Entrada: SI = jogador, DI = adversario
 fisica_jogador:
         PUSH    AX
         CMP     byte [SI+JPULO], 0
@@ -353,14 +289,8 @@ fj_fim:
         POP     AX
         RET
 
-; =============================================================================
 ; separa_ao_pousar
 ; Entrada: SI = jogador que acabou de pousar, DI = adversario.
-; Se pousou a menos de DIST_MIN do adversario (que esta no chao), empurra
-; quem pousou para o lado em que caiu. Se a parede impedir, empurra o
-; adversario para o outro lado. Se o adversario ainda estiver no ar, a
-; separacao sera feita quando ELE pousar.
-; =============================================================================
 separa_ao_pousar:
         PUSH    AX
         PUSH    BX
@@ -378,22 +308,22 @@ sp_abs:
         MOV     BX, [DI+JX]
         CMP     AX, 0
         JL      sp_esquerda
-        ; ---- caiu a direita (ou exatamente em cima): vai para a direita
+        ; caiu a direita (ou exatamente em cima): vai para a direita
         ADD     BX, DIST_MIN
         CMP     BX, LIM_DIR
         JLE     sp_grava
-        MOV     BX, LIM_DIR                 ; parede direita: encosta nela...
+        MOV     BX, LIM_DIR                 ; parede direita: encosta nela
         MOV     AX, LIM_DIR - DIST_MIN
-        MOV     [DI+JX], AX                 ; ...e empurra o adversario
+        MOV     [DI+JX], AX                 ; empurra o adversario
         JMP     sp_grava
 sp_esquerda:
-        ; ---- caiu a esquerda: vai para a esquerda
+        ; caiu a esquerda: vai para a esquerda
         SUB     BX, DIST_MIN
         CMP     BX, LIM_ESQ
         JGE     sp_grava
-        MOV     BX, LIM_ESQ                 ; parede esquerda: encosta nela...
+        MOV     BX, LIM_ESQ                 ; parede esquerda: encosta nela
         MOV     AX, LIM_ESQ + DIST_MIN
-        MOV     [DI+JX], AX                 ; ...e empurra o adversario
+        MOV     [DI+JX], AX                 ; e empurra o adversario
 sp_grava:
         MOV     [SI+JX], BX
 sp_fim:
@@ -401,13 +331,7 @@ sp_fim:
         POP     AX
         RET
 
-; =============================================================================
 ; atualiza_direcao
-; Mantem os lutadores sempre virados um para o outro:
-;   x1 < x2 -> J1 olha para a direita (0) e J2 para a esquerda (1)
-;   x1 > x2 -> J1 olha para a esquerda (1) e J2 para a direita (0)
-;   x1 = x2 -> (um sobre o outro, no pulo) mantem a direcao atual
-; =============================================================================
 atualiza_direcao:
         PUSH    AX
         MOV     AX, [jogador1+JX]
@@ -424,14 +348,8 @@ ad_fim:
         POP     AX
         RET
 
-; =============================================================================
 ; atualiza_animacao
 ; Entrada: SI = jogador.
-; Avanca o frame da animacao do estado atual:
-;   - abaixado: trava no ultimo frame enquanto a tecla estiver pressionada;
-;   - soco/chute: ao terminar a animacao, volta ao estado parado;
-;   - demais estados: animacao ciclica.
-; =============================================================================
 atualiza_animacao:
         PUSH    AX
         PUSH    BX
@@ -464,11 +382,8 @@ aa_fim:
         POP     AX
         RET
 
-; =============================================================================
 ; houve_mudanca
 ; Saida: AL = 1 se algum jogador mudou de posicao/frame/estado/direcao desde
-;        o ultimo desenho; AL = 0 caso contrario.
-; =============================================================================
 houve_mudanca:
         PUSH    SI
         MOV     SI, jogador1
@@ -505,11 +420,8 @@ jm_fim:
         POP     BX
         RET
 
-; =============================================================================
 ; pinta_jogador
 ; Entrada: SI = jogador. Desenha na posicao ATUAL, com a cor do jogador, e
-; guarda essa posicao/frame/estado/direcao como "anterior" (para apagar depois).
-; =============================================================================
 pinta_jogador:
         PUSH    AX
         PUSH    BX
@@ -521,7 +433,7 @@ pinta_jogador:
         MOV     BH, [SI+JESTADO]
         MOV     CX, [SI+JX]
         MOV     DX, [SI+JY]
-        CALL    desenha_jogador             ; preserva todos os registradores
+        CALL    desenha_jogador            
         MOV     [SI+JXANT], CX
         MOV     [SI+JYANT], DX
         MOV     [SI+JFRAMEANT], AH
@@ -533,10 +445,8 @@ pinta_jogador:
         POP     AX
         RET
 
-; =============================================================================
 ; apaga_jogador
 ; Entrada: SI = jogador. Redesenha em PRETO na posicao ANTERIOR.
-; =============================================================================
 apaga_jogador:
         PUSH    AX
         PUSH    BX
@@ -555,7 +465,6 @@ apaga_jogador:
         POP     AX
         RET
 
-; =============================================================================
 segment data public class=DATA
 
 ; Mapa de teclas do jogador sendo processado por controla_jogador
@@ -567,13 +476,9 @@ tecla_soco      DB      0
 tecla_chute     DB      0
 
 ; Numero de frames de cada estado: parado, andar, soco, chute, abaixar.
-; O estado parado usa so o frame 0 (v_idle tambem tem um frame 1, nao usado).
 limite_frames   DB      1, 10, 10, 10, 3
 
-; ----------------------------------------------------------------------------
-; Lutadores (20 bytes cada; deslocamentos dos campos no inicio do modulo).
-; A cor e sobrescrita pela tela de selecao.
-; ----------------------------------------------------------------------------
+; Jogadores 
 jogador1:
         DW      X_INICIAL_J1, Y_CHAO    ; JX, JY
         DW      X_INICIAL_J1, Y_CHAO    ; JXANT, JYANT

@@ -1,64 +1,29 @@
-; =============================================================================
-; logica.asm  -  Regras da partida, pausa e encerramento manual
-; -----------------------------------------------------------------------------
-; Rounds e partida:
-;   - o round termina quando um lutador chega a energia 0 ou quando o tempo
-;     de TEMPO_ROUND segundos se esgota;
-;   - partida em melhor de tres: vence quem conquistar ROUNDS_VITORIA rounds.
-;
-; CRITERIO DE VENCEDOR DO ROUND (aplicado em ordem):
-;   1. Quem tiver MAIS ENERGIA (inclui o nocaute: energia 0 perde).
-;   2. Empate de energia: vence quem acertou o ULTIMO GOLPE VALIDO do round.
-;      (Se os dois zerarem a energia no mesmo tique, vale o golpe processado
-;      por ultimo nesse tique.)
-;   3. Nenhum golpe no round: vence quem estiver mais perto do CENTRO da
-;      arena (dominio do ringue, X = 320).
-;   4. Mesma distancia ao centro: vence o Jogador 1.
-;
-; Teclas de comando (tratadas pelo buffer de eventos):
-;   P     : alterna pausa / execucao. Na pausa o cronometro do round fica
-;           congelado e e exibido "PAUSED".
-;   Q/ESC : pede confirmacao "Deseja sair? (Y/N)". Y encerra o programa,
-;           N retorna exatamente ao estado anterior.
-;
-; Rotinas publicas:
-;   inicia_partida, verifica_fim_round, trata_eventos, pausa,
-;   confirma_saida, aguarda
-; Variaveis publicas:
-;   rounds_p1, rounds_p2, round_acabou, vencedor, vencedor_round,
-;   motivo_fim, ultimo_golpe, sair_flag
-; =============================================================================
+; logica.asm - Regras da partida, pausa e encerramento manual
 
-; ------------------------------- Constantes (EQU) -----------------------------
-; Constantes usadas por este modulo. Um EQU nao ocupa memoria: o montador
-; troca o nome pelo valor. As que aparecem em mais de um modulo (estrutura do
-; jogador, cores, scan codes, regras) precisam ter o MESMO valor em todos.
-
-; ------------------------------- Scan codes (make) ----------------------------
+; Scan codes
 TEC_ESC         EQU     01h
 TEC_Q           EQU     10h
 TEC_Y           EQU     15h
 TEC_P           EQU     19h
 TEC_N           EQU     31h
 
-; ------------------------------- Cores (paleta padrao VGA) --------------------
+; Cores
 branco          EQU     7           ; 0 1 1 1
 amarelo         EQU     14          ; 1 1 1 0
 
-; ------------------------------- Arena e HUD ----------------------------------
-LIN_MSG         EQU     6           ; mensagens no centro da arena (acima do pulo)
-LIN_CONFIRMA    EQU     27          ; confirmacao de saida (abaixo do chao)
+; Arena e HUD
+LIN_MSG         EQU     6           ; mensagens no centro da arena 
+LIN_CONFIRMA    EQU     27          ; confirmacao de saida
 
-; ------------------------------- Regras do jogo -------------------------------
+; Regras do jogo
 ROUNDS_VITORIA  EQU     2           ; melhor de tres
-TEMPO_ROUND     EQU     180         ; 3 minutos, em segundos
+TEMPO_ROUND     EQU     180         ; 180 segundos
 MOTIVO_KO       EQU     1           ; round terminou por falta de energia
 MOTIVO_TEMPO    EQU     2           ; round terminou por tempo esgotado
 
-; ------------------------------- Estrutura de um jogador (20 bytes) -----------
-; Acesse sempre como [SI+campo] ou [jogadorN+campo].
-JX              EQU     0           ; dw  posicao X atual (centro do tronco)
-JENERGIA        EQU     13          ; db  energia (comeca em ENERGIA_INICIAL)
+; Estrutura de um jogador
+JX              EQU     0           ; dw  posicao X atual 
+JENERGIA        EQU     13          ; db  energia
 
 global  inicia_partida
 global  verifica_fim_round
@@ -90,9 +55,7 @@ extern  cor                         ; graficos.asm
 
 segment code public class=CODE
 
-; =============================================================================
 ; inicia_partida: zera o placar no inicio de uma nova partida.
-; =============================================================================
 inicia_partida:
         MOV     byte [rounds_p1], 0
         MOV     byte [rounds_p2], 0
@@ -100,14 +63,7 @@ inicia_partida:
         MOV     byte [sair_flag], 0
         RET
 
-; =============================================================================
 ; verifica_fim_round
-; Chamada uma vez por tique. Se o round terminou, define:
-;   round_acabou = 1, vencedor_round = 1 ou 2, motivo_fim = KO ou TEMPO,
-;   incrementa os rounds do vencedor e, se ele chegou a ROUNDS_VITORIA,
-;   define vencedor = 1 ou 2 (fim da partida).
-; Antes do inicio de cada round, round_acabou e ultimo_golpe devem ser 0.
-; =============================================================================
 verifica_fim_round:
         PUSH    AX
         PUSH    BX
@@ -122,19 +78,19 @@ verifica_fim_round:
         MOV     byte [motivo_fim], MOTIVO_TEMPO
 
 vfr_compara:
-        ; ---- 1. energia
+        ; 1. energia
         MOV     AL, [jogador1+JENERGIA]
         CMP     AL, [jogador2+JENERGIA]
         JA      vfr_p1
         JB      vfr_p2
 
-        ; ---- 2. ultimo golpe valido
+        ; 2. ultimo golpe valido
         CMP     byte [ultimo_golpe], 1
         JE      vfr_p1
         CMP     byte [ultimo_golpe], 2
         JE      vfr_p2
 
-        ; ---- 3. dominio do centro da arena
+        ; 3. dominio do centro da arena
         MOV     AX, [jogador1+JX]
         SUB     AX, 320
         JNS     vfr_a1
@@ -147,7 +103,7 @@ vfr_a1:
 vfr_a2:
         CMP     AX, BX
         JA      vfr_p2                      ; J2 mais perto do centro
-        ; ---- 4. persistindo o empate, J1 (cai em vfr_p1)
+        ; 4. persistindo o empate, J1 (cai em vfr_p1)
 
 vfr_p1:
         MOV     byte [vencedor_round], 1
@@ -171,13 +127,7 @@ vfr_fim:
         POP     AX
         RET
 
-; =============================================================================
 ; trata_eventos
-; Consome a fila de eventos do teclado durante a luta:
-;   P     -> pausa (bloqueia ate novo P)
-;   Q/ESC -> confirmacao de saida (Y define sair_flag = 1)
-; As demais teclas sao ignoradas aqui (o movimento usa a tabela de estado).
-; =============================================================================
 trata_eventos:
         PUSH    AX
 te_prox:
@@ -204,14 +154,7 @@ te_fim:
         POP     AX
         RET
 
-; =============================================================================
 ; pausa
-; Congela o cronometro do round, mostra "PAUSED" e espera um novo P.
-; Q/ESC continuam funcionando durante a pausa (com confirmacao).
-; Ao retomar, apaga o aviso e devolve o cronometro ao estado anterior; como
-; o laco principal so processa um tique por vez, o jogo continua exatamente
-; do ponto em que parou.
-; =============================================================================
 pausa:
         PUSH    AX
         PUSH    DX
@@ -257,13 +200,7 @@ pa_retoma:
         POP     AX
         RET
 
-; =============================================================================
 ; confirma_saida
-; Mostra "Sair? (Y/N)" na linha LIN_CONFIRMA e espera Y ou N.
-; O cronometro fica congelado enquanto a pergunta estiver na tela.
-; Saida: AL = 1 se o usuario confirmou (Y), AL = 0 se desistiu (N).
-; A mensagem e apagada antes de retornar (volta ao estado anterior).
-; =============================================================================
 confirma_saida:
         PUSH    BX
         PUSH    DX
@@ -289,7 +226,7 @@ cs_espera:
 cs_sim:
         MOV     AL, 1
 
-        ; ---- espera a tecla ser solta: N tambem e o chute do J2, e sem isso
+        ; espera a tecla ser solta: N tambem e o chute do J2, e sem isso
         ;      o jogo voltaria com a tecla "pressionada" e o J2 chutaria.
 cs_solta:
         PUSH    BX
@@ -316,13 +253,8 @@ cs_fim:
         POP     BX
         RET
 
-; =============================================================================
 ; aguarda
 ; Entrada: CX = numero de tiques (~55 ms cada) a esperar.
-; Espera usando o contador da INT 8h (HLT entre as interrupcoes), sem laco
-; de atraso. Durante a espera, Q/ESC continuam pedindo confirmacao; se o
-; usuario confirmar, sair_flag = 1 e a rotina retorna imediatamente.
-; =============================================================================
 aguarda:
         PUSH    AX
         PUSH    BX
@@ -352,7 +284,6 @@ ag_fim:
         POP     AX
         RET
 
-; =============================================================================
 segment data public class=DATA
 
 rounds_p1       DB      0           ; rounds vencidos pelo Jogador 1

@@ -1,51 +1,29 @@
-; =============================================================================
-; hud.asm  -  Interface grafica da luta: arena, energia, tempo, rounds, avisos
-; -----------------------------------------------------------------------------
-; Layout (coordenadas de plot_xy, Y = 0 embaixo):
-;   Y 440..460 : barras de energia (J1 a esquerda, J2 a direita), marcadores
-;                de rounds vencidos e cronometro M:SS no centro
-;   Y 70..420  : arena (delimitadores inferior, superior, esquerdo e direito)
-;   linha de texto LIN_MSG      : avisos (ROUND n, PAUSED, vencedor do round)
-;   linha de texto LIN_CONFIRMA : confirmacao de saida (abaixo do chao)
-;
-; Rotinas publicas:
-;   desenha_cenario : limpa a tela e desenha arena + HUD completo
-;   atualiza_barra  : apaga 1 bloco da barra de energia (DI = jogador atingido)
-;   desenha_rounds  : marcadores de rounds vencidos
-;   desenha_tempo   : cronometro (so redesenha quando o segundo muda)
-;   msg_centro      : escreve um texto centralizado numa linha
-;   apaga_linha     : apaga uma linha de texto dentro da arena
-; =============================================================================
+; hud.asm - interface grafica
 
-; ------------------------------- Constantes (EQU) -----------------------------
-; Constantes usadas por este modulo. Um EQU nao ocupa memoria: o montador
-; troca o nome pelo valor. As que aparecem em mais de um modulo (estrutura do
-; jogador, cores, scan codes, regras) precisam ter o MESMO valor em todos.
 
-; ------------------------------- Cores (paleta padrao VGA) --------------------
+
+;  Cores
                                     ; I R G B
 preto           EQU     0           ; 0 0 0 0
 amarelo         EQU     14          ; 1 1 1 0
 branco_intenso  EQU     15          ; 1 1 1 1
 
-; ------------------------------- Arena e HUD ----------------------------------
-; Coordenadas no sistema de plot_xy: Y = 0 embaixo, Y = 479 em cima.
+; Arena e HUD
 ARENA_ESQ       EQU     10
 ARENA_DIR       EQU     629
 ARENA_BAIXO     EQU     70          ; chao
 ARENA_TOPO      EQU     420         ; acima disso fica o HUD
 BARRA_Y_BAIXO   EQU     440         ; barras de energia
 BARRA_Y_TOPO    EQU     460
-BARRA_P1_X      EQU     20          ; J1: X = 20..219
-BARRA_P2_X      EQU     420         ; J2: X = 420..619
+BARRA_P1_X      EQU     20          ; J1
+BARRA_P2_X      EQU     420         ; J2
 LARG_BLOCO      EQU     20          ; 1 ponto de energia = 20 px de barra
 
-; ------------------------------- Regras do jogo -------------------------------
 TEMPO_ROUND     EQU     180         ; 3 minutos, em segundos
 
-; ------------------------------- Estrutura de um jogador (20 bytes) -----------
-JCOR            EQU     12          ; db  cor do lutador (escolhida na selecao)
-JENERGIA        EQU     13          ; db  energia (comeca em ENERGIA_INICIAL)
+; Estrutura dos jogadores
+JCOR            EQU     12          ; db  cor do lutador
+JENERGIA        EQU     13          ; db  energia 
 
 global  desenha_cenario
 global  atualiza_barra
@@ -71,11 +49,8 @@ extern  rounds_p2
 
 segment code public class=CODE
 
-; =============================================================================
 ; desenha_cenario
-; Limpa a tela e desenha a arena, as barras, os rounds e o cronometro.
-; Chamado no inicio de cada round.
-; =============================================================================
+
 desenha_cenario:
         CALL    limpa_tela
         CALL    desenha_arena
@@ -85,11 +60,8 @@ desenha_cenario:
         CALL    desenha_tempo
         RET
 
-; =============================================================================
 ; desenha_arena
-; Retangulo da arena: chao em Y = ARENA_BAIXO, teto em Y = ARENA_TOPO,
-; paredes em X = ARENA_ESQ e X = ARENA_DIR.
-; =============================================================================
+
 desenha_arena:
         PUSH    AX
         MOV     byte [cor], branco_intenso
@@ -137,13 +109,7 @@ desenha_arena:
         POP     AX
         RET
 
-; =============================================================================
 ; desenha_barras
-; Desenha as duas barras de energia, cada uma com JENERGIA * LARG_BLOCO px,
-; na cor escolhida pelo jogador:
-;   Jogador 1 (esquerda): X = 20..219
-;   Jogador 2 (direita) : X = 420..619
-; =============================================================================
 desenha_barras:
         PUSH    AX
         PUSH    BX
@@ -181,11 +147,7 @@ barra_cheia:
         POP     AX
         RET
 
-; -----------------------------------------------------------------------------
 ; faixa_vertical
-; Preenche, na cor [cor], as colunas X = CX .. DX-1 entre BARRA_Y_BAIXO e
-; BARRA_Y_TOPO (uma linha vertical por coluna).
-; -----------------------------------------------------------------------------
 faixa_vertical:
         PUSH    AX
         PUSH    CX
@@ -206,12 +168,7 @@ fv_fim:
         POP     AX
         RET
 
-; =============================================================================
 ; atualiza_barra
-; Entrada: DI = jogador que acabou de perder 1 ponto de energia.
-; Apaga (pinta de preto) apenas o bloco de LARG_BLOCO px correspondente ao
-; novo valor de [DI+JENERGIA], sem redesenhar o resto da barra.
-; =============================================================================
 atualiza_barra:
         PUSH    AX
         PUSH    BX
@@ -243,11 +200,7 @@ ab_apaga:
         POP     AX
         RET
 
-; =============================================================================
 ; desenha_rounds
-; Dois marcadores por jogador (circulo vazio = round ainda nao vencido,
-; circulo cheio = round vencido). J1 em X = 235/255, J2 em X = 405/385.
-; =============================================================================
 desenha_rounds:
         PUSH    AX
         PUSH    BX
@@ -280,7 +233,7 @@ marcador:
         PUSH    AX
         PUSH    DX
         MOV     byte [cor], amarelo
-        MOV     DL, AL                      ; DL = rounds vencidos
+        MOV     DL, AL                      ; rounds vencidos
         PUSH    BX                          ; xc
         MOV     AX, 450
         PUSH    AX                          ; yc
@@ -288,7 +241,7 @@ marcador:
         PUSH    AX                          ; r
         CMP     DL, CL
         JAE     mc_cheio
-        CALL    circle                      ; consome xc, yc, r
+        CALL    circle
         JMP     mc_fim
 mc_cheio:
         CALL    full_circle
@@ -297,11 +250,7 @@ mc_fim:
         POP     AX
         RET
 
-; =============================================================================
 ; desenha_tempo
-; Mostra o tempo restante do round no formato M:SS. So redesenha quando o
-; segundo muda (evita chamadas desnecessarias a BIOS).
-; =============================================================================
 desenha_tempo:
         PUSH    AX
         PUSH    BX
@@ -334,7 +283,7 @@ dt_limpa:
         XOR     AX, AX
 dt_pos:
         MOV     BL, 100
-        DIV     BL                          ; AL = centena, AH = resto 0-99
+        DIV     BL                          ; AL = centena, AH = resto
         MOV     BH, AH
 
         MOV     byte [cor], branco_intenso
@@ -367,11 +316,7 @@ dt_fim:
         POP     AX
         RET
 
-; =============================================================================
 ; msg_centro
-; Entrada: DS:SI = texto terminado em 0, DH = linha, cor em [cor].
-; Escreve o texto centralizado horizontalmente (80 colunas).
-; =============================================================================
 msg_centro:
         PUSH    AX
         PUSH    CX
@@ -400,11 +345,7 @@ mc_posiciona:
         POP     AX
         RET
 
-; =============================================================================
 ; apaga_linha
-; Entrada: DH = linha de texto. Apaga as colunas 2..77 (dentro das paredes
-; da arena, que ficam nas colunas 1 e 78).
-; =============================================================================
 apaga_linha:
         PUSH    CX
         PUSH    DX
@@ -415,7 +356,6 @@ apaga_linha:
         POP     CX
         RET
 
-; =============================================================================
 segment data public class=DATA
 
 ultimo_seg      DW      0FFFFh      ; ultimo valor de segundos desenhado

@@ -1,29 +1,6 @@
-; =============================================================================
 ; teclado.asm  -  Tratamento do teclado pela interrupcao de hardware INT 9h
-; -----------------------------------------------------------------------------
-; Baseado no programa Tecbuf da disciplina. A ISR le o scan code direto da
-; porta 60h e mantem DUAS estruturas:
-;   teclas[128] : tabela de estado, 1 = tecla pressionada, 0 = solta.
-;                 Usada para o movimento continuo dos lutadores (os dois
-;                 jogadores podem segurar teclas ao mesmo tempo).
-;   buffer[16]  : fila circular de scan codes, usada para comandos pontuais
-;                 (P, Q, Y, N, Enter, selecao de cores).
-; Nenhuma leitura de tecla usa a INT 21h.
-;
-; Rotinas publicas:
-;   instala_teclado  : salva o vetor original da INT 9h e instala keyINT
-;   restaura_teclado : devolve o vetor original
-;   le_evento        : retira o proximo codigo MAKE da fila (CF=1 se vazia)
-;   espera_evento    : bloqueia (com HLT) ate chegar um codigo MAKE
-;   limpa_eventos    : descarta tudo o que estiver na fila
-; =============================================================================
 
-; ------------------------------- Constantes (EQU) -----------------------------
-; Constantes usadas por este modulo. Um EQU nao ocupa memoria: o montador
-; troca o nome pelo valor. As que aparecem em mais de um modulo (estrutura do
-; jogador, cores, scan codes, regras) precisam ter o MESMO valor em todos.
-
-; ------------------------------- Hardware -------------------------------------
+; Hardware
 KB_DATA         EQU     60h         ; porta de dados do teclado (8042)
 KB_CTL          EQU     61h         ; porta de controle do teclado (8255 PB)
 PICTRL          EQU     20h         ; porta de comando do PIC 8259
@@ -42,29 +19,25 @@ MASCARA_BUFFER  EQU     TAM_BUFFER - 1
 
 segment code public class=CODE
 
-; -----------------------------------------------------------------------------
-; instala_teclado: salva o vetor da INT 9h e aponta-o para keyINT.
-; -----------------------------------------------------------------------------
+; instala_teclado
 instala_teclado:
         PUSH    AX
         PUSH    ES
-        CLI                                 ; ninguem interrompe durante a troca
+        CLI                            
         XOR     AX, AX
-        MOV     ES, AX                      ; ES = 0000h -> tabela de vetores
-        MOV     AX, [ES:INT_TEC*4]          ; IP original
+        MOV     ES, AX                   
+        MOV     AX, [ES:INT_TEC*4]       
         MOV     [offset_tec], AX
-        MOV     AX, [ES:INT_TEC*4+2]        ; CS original
+        MOV     AX, [ES:INT_TEC*4+2]    
         MOV     [cs_tec], AX
-        MOV     [ES:INT_TEC*4+2], CS        ; instala a nossa ISR
+        MOV     [ES:INT_TEC*4+2], CS    
         MOV     WORD [ES:INT_TEC*4], keyINT
         STI
         POP     ES
         POP     AX
         RET
 
-; -----------------------------------------------------------------------------
 ; restaura_teclado: devolve o vetor original da INT 9h (retorno seguro ao DOS).
-; -----------------------------------------------------------------------------
 restaura_teclado:
         PUSH    AX
         PUSH    ES
@@ -80,13 +53,9 @@ restaura_teclado:
         POP     AX
         RET
 
-; -----------------------------------------------------------------------------
 ; le_evento
 ; Saida: CF = 0 e AL = scan code MAKE da proxima tecla pressionada, ou
 ;        CF = 1 se a fila nao tiver nenhum codigo MAKE pendente.
-; Os codigos BREAK (bit 7 = 1) sao descartados: so interessam ao movimento,
-; que e tratado pela tabela de estado.
-; -----------------------------------------------------------------------------
 le_evento:
         PUSH    BX
 le_prox:
@@ -107,12 +76,8 @@ le_vazio:
         POP     BX
         RET
 
-; -----------------------------------------------------------------------------
 ; espera_evento
 ; Saida: AL = scan code MAKE. Enquanto a fila estiver vazia o processador
-; fica em HLT ate a proxima interrupcao (teclado ou relogio), sem laco de
-; atraso por software.
-; -----------------------------------------------------------------------------
 espera_evento:
         CALL    le_evento
         JNC     ee_fim
@@ -121,9 +86,7 @@ espera_evento:
 ee_fim:
         RET
 
-; -----------------------------------------------------------------------------
 ; limpa_eventos: descarta os codigos pendentes (usado ao trocar de tela).
-; -----------------------------------------------------------------------------
 limpa_eventos:
         PUSH    AX
         CLI
@@ -133,11 +96,7 @@ limpa_eventos:
         POP     AX
         RET
 
-; =============================================================================
 ; keyINT  -  ISR do teclado (INT 9h)
-; As setas chegam como E0h + codigo; o prefixo E0h e ignorado, de modo que
-; seta esquerda = 4Bh, seta direita = 4Dh etc.
-; =============================================================================
 keyINT:
         PUSH    AX
         PUSH    BX
@@ -151,17 +110,17 @@ keyINT:
         CMP     AL, 0E1h                    ; prefixo da tecla Pause
         JE      ki_ack
 
-        ; ---- grava na fila circular (comandos)
+        ; grava na fila circular
         MOV     BX, [p_i]
         INC     BX
         AND     BX, MASCARA_BUFFER
-        CMP     BX, [p_t]                   ; fila cheia? descarta o codigo
-        JE      ki_estado                   ; (em vez de sobrescrever os antigos)
+        CMP     BX, [p_t]           
+        JE      ki_estado                  
         MOV     [p_i], BX
         MOV     [buffer+BX], AL
 
 ki_estado:
-        ; ---- atualiza a tabela de estado (movimento)
+        ; atualiza a tabela de estado (movimento)
         MOV     BL, AL
         AND     BX, 007Fh                   ; BX = codigo sem o bit 7 (e BH = 0)
         TEST    AL, 80h                     ; bit 7 = 1 -> break (soltou)

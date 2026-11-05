@@ -17,501 +17,405 @@
     17                                  ;   apaga_linha     : apaga uma linha de texto dentro da arena
     18                                  ; =============================================================================
     19                                  
-    20                                  %include "const.inc"
-    21                              <1> ; =============================================================================
-    22                              <1> ; const.inc  -  Constantes compartilhadas por todos os modulos do jogo
-    23                              <1> ; -----------------------------------------------------------------------------
-    24                              <1> ; Contem apenas EQUs (nao gera codigo nem dados). Incluido com
-    25                              <1> ;   %include "const.inc"
-    26                              <1> ; em cada modulo .asm. Qualquer alteracao aqui exige remontar todos os
-    27                              <1> ; modulos (o Makefile ja declara essa dependencia).
-    28                              <1> ; =============================================================================
-    29                              <1> 
-    30                              <1> ; ------------------------------- Hardware -------------------------------------
-    31                              <1> KB_DATA         EQU     60h         ; porta de dados do teclado (8042)
-    32                              <1> KB_CTL          EQU     61h         ; porta de controle do teclado (8255 PB)
-    33                              <1> PICTRL          EQU     20h         ; porta de comando do PIC 8259
-    34                              <1> EOI             EQU     20h         ; comando End Of Interrupt
-    35                              <1> INT_TEC         EQU     09h         ; interrupcao de hardware do teclado (IRQ1)
-    36                              <1> INT_CLK         EQU     08h         ; interrupcao de hardware do 8253 (IRQ0)
-    37                              <1> 
-    38                              <1> ; ------------------------------- Scan codes (make) ----------------------------
-    39                              <1> TEC_ESC         EQU     01h
-    40                              <1> TEC_Q           EQU     10h
-    41                              <1> TEC_W           EQU     11h
-    42                              <1> TEC_R           EQU     13h
-    43                              <1> TEC_T           EQU     14h
-    44                              <1> TEC_Y           EQU     15h
-    45                              <1> TEC_P           EQU     19h
-    46                              <1> TEC_ENTER       EQU     1Ch
-    47                              <1> TEC_A           EQU     1Eh
-    48                              <1> TEC_S           EQU     1Fh
-    49                              <1> TEC_D           EQU     20h
-    50                              <1> TEC_N           EQU     31h
-    51                              <1> TEC_M           EQU     32h
-    52                              <1> TEC_CIMA        EQU     48h         ; seta para cima   (chega apos o prefixo E0h)
-    53                              <1> TEC_ESQ         EQU     4Bh         ; seta esquerda    (apos E0h)
-    54                              <1> TEC_DIR         EQU     4Dh         ; seta direita     (apos E0h)
-    55                              <1> TEC_BAIXO       EQU     50h         ; seta para baixo  (apos E0h)
-    56                              <1> 
-    57                              <1> ; ------------------------------- Cores (paleta padrao VGA) --------------------
-    58                              <1>                                     ; I R G B
-    59                              <1> preto           EQU     0           ; 0 0 0 0
-    60                              <1> azul            EQU     1           ; 0 0 0 1
-    61                              <1> verde           EQU     2           ; 0 0 1 0
-    62                              <1> cyan            EQU     3           ; 0 0 1 1
-    63                              <1> vermelho        EQU     4           ; 0 1 0 0
-    64                              <1> magenta         EQU     5           ; 0 1 0 1
-    65                              <1> marrom          EQU     6           ; 0 1 1 0
-    66                              <1> branco          EQU     7           ; 0 1 1 1
-    67                              <1> cinza           EQU     8           ; 1 0 0 0
-    68                              <1> azul_claro      EQU     9           ; 1 0 0 1
-    69                              <1> verde_claro     EQU     10          ; 1 0 1 0
-    70                              <1> cyan_claro      EQU     11          ; 1 0 1 1
-    71                              <1> rosa            EQU     12          ; 1 1 0 0
-    72                              <1> magenta_claro   EQU     13          ; 1 1 0 1
-    73                              <1> amarelo         EQU     14          ; 1 1 1 0
-    74                              <1> branco_intenso  EQU     15          ; 1 1 1 1
-    75                              <1> 
-    76                              <1> ; ------------------------------- Arena e HUD ----------------------------------
-    77                              <1> ; Coordenadas no sistema de plot_xy: Y = 0 embaixo, Y = 479 em cima.
-    78                              <1> ARENA_ESQ       EQU     10
-    79                              <1> ARENA_DIR       EQU     629
-    80                              <1> ARENA_BAIXO     EQU     70          ; chao
-    81                              <1> ARENA_TOPO      EQU     420         ; acima disso fica o HUD
-    82                              <1> 
-    83                              <1> BARRA_Y_BAIXO   EQU     440         ; barras de energia
-    84                              <1> BARRA_Y_TOPO    EQU     460
-    85                              <1> BARRA_P1_X      EQU     20          ; J1: X = 20..219
-    86                              <1> BARRA_P2_X      EQU     420         ; J2: X = 420..619
-    87                              <1> LARG_BLOCO      EQU     20          ; 1 ponto de energia = 20 px de barra
-    88                              <1> 
-    89                              <1> ; Linhas de texto (modo 12h: 30 linhas x 80 colunas, celula 8x16)
-    90                              <1> LIN_TEMPO       EQU     1           ; cronometro (centro do HUD)
-    91                              <1> COL_TEMPO       EQU     38
-    92                              <1> LIN_MSG         EQU     6           ; mensagens no centro da arena (acima do pulo)
-    93                              <1> LIN_CONFIRMA    EQU     27          ; confirmacao de saida (abaixo do chao)
-    94                              <1> 
-    95                              <1> ; ------------------------------- Regras do jogo -------------------------------
-    96                              <1> ENERGIA_INICIAL EQU     10          ; golpes validos para perder o round
-    97                              <1> ROUNDS_VITORIA  EQU     2           ; melhor de tres
-    98                              <1> TEMPO_ROUND     EQU     180         ; 3 minutos, em segundos
-    99                              <1> MOTIVO_KO       EQU     1           ; round terminou por falta de energia
-   100                              <1> MOTIVO_TEMPO    EQU     2           ; round terminou por tempo esgotado
-   101                              <1> 
-   102                              <1> ; ------------------------------- Fisica dos lutadores -------------------------
-   103                              <1> VELOCIDADE      EQU     4           ; pixels por tique (~73 px/s)
-   104                              <1> LIM_ESQ         EQU     40          ; menor X permitido para o centro do boneco
-   105                              <1> LIM_DIR         EQU     598         ; maior X permitido (braco vai ate +27)
-   106                              <1> DIST_MIN        EQU     50          ; distancia minima entre os dois lutadores
-   107                              <1> Y_CHAO          EQU     156         ; Y dos ombros com o lutador no chao
-   108                              <1> VEL_PULO        EQU     22          ; velocidade vertical inicial do pulo (px/tique)
-   109                              <1> GRAVIDADE       EQU     3           ; reducao de VY a cada tique
-   110                              <1> X_INICIAL_J1    EQU     150
-   111                              <1> X_INICIAL_J2    EQU     490
-   112                              <1> 
-   113                              <1> ; ------------------------------- Colisao --------------------------------------
-   114                              <1> ALCANCE_SOCO    EQU     68          ; distancia maxima em X para o soco acertar
-   115                              <1> ALCANCE_CHUTE   EQU     74          ; distancia maxima em X para o chute acertar
-   116                              <1> TOLERANCIA_Y    EQU     25          ; diferenca de altura maxima para o soco
-   117                              <1> FRAME_IMPACTO_SOCO  EQU 2           ; frame da animacao em que o soco "pega"
-   118                              <1> FRAME_IMPACTO_CHUTE EQU 3           ; frame da animacao em que o chute "pega"
-   119                              <1> 
-   120                              <1> ; ------------------------------- Estados de animacao --------------------------
-   121                              <1> EST_IDLE        EQU     0
-   122                              <1> EST_ANDA        EQU     1
-   123                              <1> EST_SOCO        EQU     2
-   124                              <1> EST_CHUTE       EQU     3
-   125                              <1> EST_ABAIXA      EQU     4
-   126                              <1> 
-   127                              <1> ; ------------------------------- Estrutura de um jogador (20 bytes) -----------
-   128                              <1> ; Acesse sempre como [SI+campo] ou [jogadorN+campo].
-   129                              <1> JX              EQU     0           ; dw  posicao X atual (centro do tronco)
-   130                              <1> JY              EQU     2           ; dw  posicao Y atual (ombros)
-   131                              <1> JXANT           EQU     4           ; dw  X onde foi desenhado por ultimo
-   132                              <1> JYANT           EQU     6           ; dw  Y onde foi desenhado por ultimo
-   133                              <1> JFRAME          EQU     8           ; db  frame atual da animacao
-   134                              <1> JFRAMEANT       EQU     9           ; db  frame desenhado por ultimo
-   135                              <1> JDIR            EQU     10          ; db  0 = olha p/ direita, 1 = p/ esquerda
-   136                              <1> JDIRANT         EQU     11          ; db  direcao desenhada por ultimo
-   137                              <1> JCOR            EQU     12          ; db  cor do lutador (escolhida na selecao)
-   138                              <1> JENERGIA        EQU     13          ; db  energia (comeca em ENERGIA_INICIAL)
-   139                              <1> JESTADO         EQU     14          ; db  estado de animacao (EST_*)
-   140                              <1> JESTADOANT      EQU     15          ; db  estado desenhado por ultimo
-   141                              <1> JVY             EQU     16          ; dw  velocidade vertical (positiva = sobe)
-   142                              <1> JPULO           EQU     18          ; db  1 = no ar, 0 = no chao
-   143                              <1>                                     ; byte 19: reserva (alinhamento)
-   144                              <1> TAM_JOGADOR     EQU     20
-   145                                  
-   146                                  global  desenha_cenario
-   147                                  global  atualiza_barra
-   148                                  global  desenha_rounds
-   149                                  global  desenha_tempo
-   150                                  global  msg_centro
-   151                                  global  apaga_linha
-   152                                  
-   153                                  extern  line                        ; graficos.asm
-   154                                  extern  circle
-   155                                  extern  full_circle
-   156                                  extern  cursor
-   157                                  extern  caracter
-   158                                  extern  escreve_texto
-   159                                  extern  apaga_texto
-   160                                  extern  limpa_tela
-   161                                  extern  cor
-   162                                  extern  jogador1                    ; jogador.asm
-   163                                  extern  jogador2
-   164                                  extern  segundos                    ; tempo.asm
-   165                                  extern  rounds_p1                   ; logica.asm
-   166                                  extern  rounds_p2
-   167                                  
-   168                                  segment code public class=CODE
-   169                                  
-   170                                  ; =============================================================================
-   171                                  ; desenha_cenario
-   172                                  ; Limpa a tela e desenha a arena, as barras, os rounds e o cronometro.
-   173                                  ; Chamado no inicio de cada round.
-   174                                  ; =============================================================================
-   175                                  desenha_cenario:
-   176 00000000 E8(0000)                        CALL    limpa_tela
-   177 00000003 E81000                          CALL    desenha_arena
-   178 00000006 E86100                          CALL    desenha_barras
-   179 00000009 E8E100                          CALL    desenha_rounds
-   180 0000000C C706[0000]FFFF                  MOV     WORD [ultimo_seg], 0FFFFh   ; forca o redesenho do tempo
-   181 00000012 E82701                          CALL    desenha_tempo
-   182 00000015 C3                              RET
+    20                                  ; ------------------------------- Constantes (EQU) -----------------------------
+    21                                  ; Constantes usadas por este modulo. Um EQU nao ocupa memoria: o montador
+    22                                  ; troca o nome pelo valor. As que aparecem em mais de um modulo (estrutura do
+    23                                  ; jogador, cores, scan codes, regras) precisam ter o MESMO valor em todos.
+    24                                  
+    25                                  ; ------------------------------- Cores (paleta padrao VGA) --------------------
+    26                                                                      ; I R G B
+    27                                  preto           EQU     0           ; 0 0 0 0
+    28                                  amarelo         EQU     14          ; 1 1 1 0
+    29                                  branco_intenso  EQU     15          ; 1 1 1 1
+    30                                  
+    31                                  ; ------------------------------- Arena e HUD ----------------------------------
+    32                                  ; Coordenadas no sistema de plot_xy: Y = 0 embaixo, Y = 479 em cima.
+    33                                  ARENA_ESQ       EQU     10
+    34                                  ARENA_DIR       EQU     629
+    35                                  ARENA_BAIXO     EQU     70          ; chao
+    36                                  ARENA_TOPO      EQU     420         ; acima disso fica o HUD
+    37                                  BARRA_Y_BAIXO   EQU     440         ; barras de energia
+    38                                  BARRA_Y_TOPO    EQU     460
+    39                                  BARRA_P1_X      EQU     20          ; J1: X = 20..219
+    40                                  BARRA_P2_X      EQU     420         ; J2: X = 420..619
+    41                                  LARG_BLOCO      EQU     20          ; 1 ponto de energia = 20 px de barra
+    42                                  
+    43                                  ; ------------------------------- Regras do jogo -------------------------------
+    44                                  TEMPO_ROUND     EQU     180         ; 3 minutos, em segundos
+    45                                  
+    46                                  ; ------------------------------- Estrutura de um jogador (20 bytes) -----------
+    47                                  JCOR            EQU     12          ; db  cor do lutador (escolhida na selecao)
+    48                                  JENERGIA        EQU     13          ; db  energia (comeca em ENERGIA_INICIAL)
+    49                                  
+    50                                  global  desenha_cenario
+    51                                  global  atualiza_barra
+    52                                  global  desenha_rounds
+    53                                  global  desenha_tempo
+    54                                  global  msg_centro
+    55                                  global  apaga_linha
+    56                                  
+    57                                  extern  line                        ; graficos.asm
+    58                                  extern  circle
+    59                                  extern  full_circle
+    60                                  extern  cursor
+    61                                  extern  caracter
+    62                                  extern  escreve_texto
+    63                                  extern  apaga_texto
+    64                                  extern  limpa_tela
+    65                                  extern  cor
+    66                                  extern  jogador1                    ; jogador.asm
+    67                                  extern  jogador2
+    68                                  extern  segundos                    ; tempo.asm
+    69                                  extern  rounds_p1                   ; logica.asm
+    70                                  extern  rounds_p2
+    71                                  
+    72                                  segment code public class=CODE
+    73                                  
+    74                                  ; =============================================================================
+    75                                  ; desenha_cenario
+    76                                  ; Limpa a tela e desenha a arena, as barras, os rounds e o cronometro.
+    77                                  ; Chamado no inicio de cada round.
+    78                                  ; =============================================================================
+    79                                  desenha_cenario:
+    80 00000000 E8(0000)                        CALL    limpa_tela
+    81 00000003 E81000                          CALL    desenha_arena
+    82 00000006 E86100                          CALL    desenha_barras
+    83 00000009 E8E100                          CALL    desenha_rounds
+    84 0000000C C706[0000]FFFF                  MOV     WORD [ultimo_seg], 0FFFFh   ; forca o redesenho do tempo
+    85 00000012 E82701                          CALL    desenha_tempo
+    86 00000015 C3                              RET
+    87                                  
+    88                                  ; =============================================================================
+    89                                  ; desenha_arena
+    90                                  ; Retangulo da arena: chao em Y = ARENA_BAIXO, teto em Y = ARENA_TOPO,
+    91                                  ; paredes em X = ARENA_ESQ e X = ARENA_DIR.
+    92                                  ; =============================================================================
+    93                                  desenha_arena:
+    94 00000016 50                              PUSH    AX
+    95 00000017 C606[0000]0F                    MOV     byte [cor], branco_intenso
+    96                                  
+    97 0000001C B80A00                          MOV     AX, ARENA_ESQ               ; chao
+    98 0000001F 50                              PUSH    AX
+    99 00000020 B84600                          MOV     AX, ARENA_BAIXO
+   100 00000023 50                              PUSH    AX
+   101 00000024 B87502                          MOV     AX, ARENA_DIR
+   102 00000027 50                              PUSH    AX
+   103 00000028 B84600                          MOV     AX, ARENA_BAIXO
+   104 0000002B 50                              PUSH    AX
+   105 0000002C E8(0000)                        CALL    line
+   106                                  
+   107 0000002F B80A00                          MOV     AX, ARENA_ESQ               ; teto
+   108 00000032 50                              PUSH    AX
+   109 00000033 B8A401                          MOV     AX, ARENA_TOPO
+   110 00000036 50                              PUSH    AX
+   111 00000037 B87502                          MOV     AX, ARENA_DIR
+   112 0000003A 50                              PUSH    AX
+   113 0000003B B8A401                          MOV     AX, ARENA_TOPO
+   114 0000003E 50                              PUSH    AX
+   115 0000003F E8(0000)                        CALL    line
+   116                                  
+   117 00000042 B80A00                          MOV     AX, ARENA_ESQ               ; parede esquerda
+   118 00000045 50                              PUSH    AX
+   119 00000046 B84600                          MOV     AX, ARENA_BAIXO
+   120 00000049 50                              PUSH    AX
+   121 0000004A B80A00                          MOV     AX, ARENA_ESQ
+   122 0000004D 50                              PUSH    AX
+   123 0000004E B8A401                          MOV     AX, ARENA_TOPO
+   124 00000051 50                              PUSH    AX
+   125 00000052 E8(0000)                        CALL    line
+   126                                  
+   127 00000055 B87502                          MOV     AX, ARENA_DIR               ; parede direita
+   128 00000058 50                              PUSH    AX
+   129 00000059 B84600                          MOV     AX, ARENA_BAIXO
+   130 0000005C 50                              PUSH    AX
+   131 0000005D B87502                          MOV     AX, ARENA_DIR
+   132 00000060 50                              PUSH    AX
+   133 00000061 B8A401                          MOV     AX, ARENA_TOPO
+   134 00000064 50                              PUSH    AX
+   135 00000065 E8(0000)                        CALL    line
+   136                                  
+   137 00000068 58                              POP     AX
+   138 00000069 C3                              RET
+   139                                  
+   140                                  ; =============================================================================
+   141                                  ; desenha_barras
+   142                                  ; Desenha as duas barras de energia, cada uma com JENERGIA * LARG_BLOCO px,
+   143                                  ; na cor escolhida pelo jogador:
+   144                                  ;   Jogador 1 (esquerda): X = 20..219
+   145                                  ;   Jogador 2 (direita) : X = 420..619
+   146                                  ; =============================================================================
+   147                                  desenha_barras:
+   148 0000006A 50                              PUSH    AX
+   149 0000006B 53                              PUSH    BX
+   150 0000006C 56                              PUSH    SI
+   151                                  
+   152 0000006D BE[0000]                        MOV     SI, jogador1
+   153 00000070 BB1400                          MOV     BX, BARRA_P1_X
+   154 00000073 E80D00                          CALL    barra_cheia
+   155 00000076 BE[0000]                        MOV     SI, jogador2
+   156 00000079 BBA401                          MOV     BX, BARRA_P2_X
+   157 0000007C E80400                          CALL    barra_cheia
+   158                                  
+   159 0000007F 5E                              POP     SI
+   160 00000080 5B                              POP     BX
+   161 00000081 58                              POP     AX
+   162 00000082 C3                              RET
+   163                                  
+   164                                  ; Entrada: SI = jogador, BX = X inicial da barra.
+   165                                  barra_cheia:
+   166 00000083 50                              PUSH    AX
+   167 00000084 51                              PUSH    CX
+   168 00000085 52                              PUSH    DX
+   169 00000086 8A440C                          MOV     AL, [SI+JCOR]
+   170 00000089 A2[0000]                        MOV     [cor], AL
+   171 0000008C 8A440D                          MOV     AL, [SI+JENERGIA]
+   172 0000008F 30E4                            XOR     AH, AH
+   173 00000091 B214                            MOV     DL, LARG_BLOCO
+   174 00000093 F6E2                            MUL     DL                          ; AX = largura em pixels
+   175 00000095 89DA                            MOV     DX, BX
+   176 00000097 01C2                            ADD     DX, AX                      ; DX = X final (exclusivo)
+   177 00000099 89D9                            MOV     CX, BX
+   178 0000009B E80400                          CALL    faixa_vertical
+   179 0000009E 5A                              POP     DX
+   180 0000009F 59                              POP     CX
+   181 000000A0 58                              POP     AX
+   182 000000A1 C3                              RET
    183                                  
-   184                                  ; =============================================================================
-   185                                  ; desenha_arena
-   186                                  ; Retangulo da arena: chao em Y = ARENA_BAIXO, teto em Y = ARENA_TOPO,
-   187                                  ; paredes em X = ARENA_ESQ e X = ARENA_DIR.
-   188                                  ; =============================================================================
-   189                                  desenha_arena:
-   190 00000016 50                              PUSH    AX
-   191 00000017 C606[0000]0F                    MOV     byte [cor], branco_intenso
-   192                                  
-   193 0000001C B80A00                          MOV     AX, ARENA_ESQ               ; chao
-   194 0000001F 50                              PUSH    AX
-   195 00000020 B84600                          MOV     AX, ARENA_BAIXO
-   196 00000023 50                              PUSH    AX
-   197 00000024 B87502                          MOV     AX, ARENA_DIR
-   198 00000027 50                              PUSH    AX
-   199 00000028 B84600                          MOV     AX, ARENA_BAIXO
-   200 0000002B 50                              PUSH    AX
-   201 0000002C E8(0000)                        CALL    line
-   202                                  
-   203 0000002F B80A00                          MOV     AX, ARENA_ESQ               ; teto
-   204 00000032 50                              PUSH    AX
-   205 00000033 B8A401                          MOV     AX, ARENA_TOPO
-   206 00000036 50                              PUSH    AX
-   207 00000037 B87502                          MOV     AX, ARENA_DIR
-   208 0000003A 50                              PUSH    AX
-   209 0000003B B8A401                          MOV     AX, ARENA_TOPO
-   210 0000003E 50                              PUSH    AX
-   211 0000003F E8(0000)                        CALL    line
-   212                                  
-   213 00000042 B80A00                          MOV     AX, ARENA_ESQ               ; parede esquerda
-   214 00000045 50                              PUSH    AX
-   215 00000046 B84600                          MOV     AX, ARENA_BAIXO
-   216 00000049 50                              PUSH    AX
-   217 0000004A B80A00                          MOV     AX, ARENA_ESQ
-   218 0000004D 50                              PUSH    AX
-   219 0000004E B8A401                          MOV     AX, ARENA_TOPO
-   220 00000051 50                              PUSH    AX
-   221 00000052 E8(0000)                        CALL    line
-   222                                  
-   223 00000055 B87502                          MOV     AX, ARENA_DIR               ; parede direita
-   224 00000058 50                              PUSH    AX
-   225 00000059 B84600                          MOV     AX, ARENA_BAIXO
-   226 0000005C 50                              PUSH    AX
-   227 0000005D B87502                          MOV     AX, ARENA_DIR
-   228 00000060 50                              PUSH    AX
-   229 00000061 B8A401                          MOV     AX, ARENA_TOPO
-   230 00000064 50                              PUSH    AX
-   231 00000065 E8(0000)                        CALL    line
+   184                                  ; -----------------------------------------------------------------------------
+   185                                  ; faixa_vertical
+   186                                  ; Preenche, na cor [cor], as colunas X = CX .. DX-1 entre BARRA_Y_BAIXO e
+   187                                  ; BARRA_Y_TOPO (uma linha vertical por coluna).
+   188                                  ; -----------------------------------------------------------------------------
+   189                                  faixa_vertical:
+   190 000000A2 50                              PUSH    AX
+   191 000000A3 51                              PUSH    CX
+   192                                  fv_loop:
+   193 000000A4 39D1                            CMP     CX, DX
+   194 000000A6 7D11                            JGE     fv_fim
+   195 000000A8 51                              PUSH    CX                          ; x1
+   196 000000A9 B8B801                          MOV     AX, BARRA_Y_BAIXO
+   197 000000AC 50                              PUSH    AX                          ; y1
+   198 000000AD 51                              PUSH    CX                          ; x2
+   199 000000AE B8CC01                          MOV     AX, BARRA_Y_TOPO
+   200 000000B1 50                              PUSH    AX                          ; y2
+   201 000000B2 E8(0000)                        CALL    line
+   202 000000B5 41                              INC     CX
+   203 000000B6 E9EBFF                          JMP     fv_loop
+   204                                  fv_fim:
+   205 000000B9 59                              POP     CX
+   206 000000BA 58                              POP     AX
+   207 000000BB C3                              RET
+   208                                  
+   209                                  ; =============================================================================
+   210                                  ; atualiza_barra
+   211                                  ; Entrada: DI = jogador que acabou de perder 1 ponto de energia.
+   212                                  ; Apaga (pinta de preto) apenas o bloco de LARG_BLOCO px correspondente ao
+   213                                  ; novo valor de [DI+JENERGIA], sem redesenhar o resto da barra.
+   214                                  ; =============================================================================
+   215                                  atualiza_barra:
+   216 000000BC 50                              PUSH    AX
+   217 000000BD 53                              PUSH    BX
+   218 000000BE 51                              PUSH    CX
+   219 000000BF 52                              PUSH    DX
+   220                                  
+   221 000000C0 8A450D                          MOV     AL, [DI+JENERGIA]
+   222 000000C3 30E4                            XOR     AH, AH
+   223 000000C5 B314                            MOV     BL, LARG_BLOCO
+   224 000000C7 F6E3                            MUL     BL                          ; AX = deslocamento do bloco
+   225                                  
+   226 000000C9 81FF[0000]                      CMP     DI, jogador1
+   227 000000CD 7506                            JNE     ab_jogador2
+   228 000000CF 051400                          ADD     AX, BARRA_P1_X
+   229 000000D2 E90300                          JMP     ab_apaga
+   230                                  ab_jogador2:
+   231 000000D5 05A401                          ADD     AX, BARRA_P2_X
    232                                  
-   233 00000068 58                              POP     AX
-   234 00000069 C3                              RET
-   235                                  
-   236                                  ; =============================================================================
-   237                                  ; desenha_barras
-   238                                  ; Desenha as duas barras de energia, cada uma com JENERGIA * LARG_BLOCO px,
-   239                                  ; na cor escolhida pelo jogador:
-   240                                  ;   Jogador 1 (esquerda): X = 20..219
-   241                                  ;   Jogador 2 (direita) : X = 420..619
-   242                                  ; =============================================================================
-   243                                  desenha_barras:
-   244 0000006A 50                              PUSH    AX
-   245 0000006B 53                              PUSH    BX
-   246 0000006C 56                              PUSH    SI
-   247                                  
-   248 0000006D BE[0000]                        MOV     SI, jogador1
-   249 00000070 BB1400                          MOV     BX, BARRA_P1_X
-   250 00000073 E80D00                          CALL    barra_cheia
-   251 00000076 BE[0000]                        MOV     SI, jogador2
-   252 00000079 BBA401                          MOV     BX, BARRA_P2_X
-   253 0000007C E80400                          CALL    barra_cheia
-   254                                  
-   255 0000007F 5E                              POP     SI
-   256 00000080 5B                              POP     BX
-   257 00000081 58                              POP     AX
-   258 00000082 C3                              RET
-   259                                  
-   260                                  ; Entrada: SI = jogador, BX = X inicial da barra.
-   261                                  barra_cheia:
-   262 00000083 50                              PUSH    AX
-   263 00000084 51                              PUSH    CX
-   264 00000085 52                              PUSH    DX
-   265 00000086 8A440C                          MOV     AL, [SI+JCOR]
-   266 00000089 A2[0000]                        MOV     [cor], AL
-   267 0000008C 8A440D                          MOV     AL, [SI+JENERGIA]
-   268 0000008F 30E4                            XOR     AH, AH
-   269 00000091 B214                            MOV     DL, LARG_BLOCO
-   270 00000093 F6E2                            MUL     DL                          ; AX = largura em pixels
-   271 00000095 89DA                            MOV     DX, BX
-   272 00000097 01C2                            ADD     DX, AX                      ; DX = X final (exclusivo)
-   273 00000099 89D9                            MOV     CX, BX
-   274 0000009B E80400                          CALL    faixa_vertical
-   275 0000009E 5A                              POP     DX
-   276 0000009F 59                              POP     CX
-   277 000000A0 58                              POP     AX
-   278 000000A1 C3                              RET
-   279                                  
-   280                                  ; -----------------------------------------------------------------------------
-   281                                  ; faixa_vertical
-   282                                  ; Preenche, na cor [cor], as colunas X = CX .. DX-1 entre BARRA_Y_BAIXO e
-   283                                  ; BARRA_Y_TOPO (uma linha vertical por coluna).
-   284                                  ; -----------------------------------------------------------------------------
-   285                                  faixa_vertical:
-   286 000000A2 50                              PUSH    AX
-   287 000000A3 51                              PUSH    CX
-   288                                  fv_loop:
-   289 000000A4 39D1                            CMP     CX, DX
-   290 000000A6 7D11                            JGE     fv_fim
-   291 000000A8 51                              PUSH    CX                          ; x1
-   292 000000A9 B8B801                          MOV     AX, BARRA_Y_BAIXO
-   293 000000AC 50                              PUSH    AX                          ; y1
-   294 000000AD 51                              PUSH    CX                          ; x2
-   295 000000AE B8CC01                          MOV     AX, BARRA_Y_TOPO
-   296 000000B1 50                              PUSH    AX                          ; y2
-   297 000000B2 E8(0000)                        CALL    line
-   298 000000B5 41                              INC     CX
-   299 000000B6 E9EBFF                          JMP     fv_loop
-   300                                  fv_fim:
-   301 000000B9 59                              POP     CX
-   302 000000BA 58                              POP     AX
-   303 000000BB C3                              RET
-   304                                  
-   305                                  ; =============================================================================
-   306                                  ; atualiza_barra
-   307                                  ; Entrada: DI = jogador que acabou de perder 1 ponto de energia.
-   308                                  ; Apaga (pinta de preto) apenas o bloco de LARG_BLOCO px correspondente ao
-   309                                  ; novo valor de [DI+JENERGIA], sem redesenhar o resto da barra.
-   310                                  ; =============================================================================
-   311                                  atualiza_barra:
-   312 000000BC 50                              PUSH    AX
-   313 000000BD 53                              PUSH    BX
-   314 000000BE 51                              PUSH    CX
-   315 000000BF 52                              PUSH    DX
-   316                                  
-   317 000000C0 8A450D                          MOV     AL, [DI+JENERGIA]
-   318 000000C3 30E4                            XOR     AH, AH
-   319 000000C5 B314                            MOV     BL, LARG_BLOCO
-   320 000000C7 F6E3                            MUL     BL                          ; AX = deslocamento do bloco
-   321                                  
-   322 000000C9 81FF[0000]                      CMP     DI, jogador1
-   323 000000CD 7506                            JNE     ab_jogador2
-   324 000000CF 051400                          ADD     AX, BARRA_P1_X
-   325 000000D2 E90300                          JMP     ab_apaga
-   326                                  ab_jogador2:
-   327 000000D5 05A401                          ADD     AX, BARRA_P2_X
-   328                                  
-   329                                  ab_apaga:
-   330 000000D8 89C1                            MOV     CX, AX
-   331 000000DA 89C2                            MOV     DX, AX
-   332 000000DC 81C21400                        ADD     DX, LARG_BLOCO
-   333 000000E0 C606[0000]00                    MOV     byte [cor], preto
-   334 000000E5 E8BAFF                          CALL    faixa_vertical
-   335                                  
-   336 000000E8 5A                              POP     DX
-   337 000000E9 59                              POP     CX
-   338 000000EA 5B                              POP     BX
-   339 000000EB 58                              POP     AX
-   340 000000EC C3                              RET
-   341                                  
-   342                                  ; =============================================================================
-   343                                  ; desenha_rounds
-   344                                  ; Dois marcadores por jogador (circulo vazio = round ainda nao vencido,
-   345                                  ; circulo cheio = round vencido). J1 em X = 235/255, J2 em X = 405/385.
-   346                                  ; =============================================================================
-   347                                  desenha_rounds:
-   348 000000ED 50                              PUSH    AX
-   349 000000EE 53                              PUSH    BX
-   350 000000EF 51                              PUSH    CX
+   233                                  ab_apaga:
+   234 000000D8 89C1                            MOV     CX, AX
+   235 000000DA 89C2                            MOV     DX, AX
+   236 000000DC 81C21400                        ADD     DX, LARG_BLOCO
+   237 000000E0 C606[0000]00                    MOV     byte [cor], preto
+   238 000000E5 E8BAFF                          CALL    faixa_vertical
+   239                                  
+   240 000000E8 5A                              POP     DX
+   241 000000E9 59                              POP     CX
+   242 000000EA 5B                              POP     BX
+   243 000000EB 58                              POP     AX
+   244 000000EC C3                              RET
+   245                                  
+   246                                  ; =============================================================================
+   247                                  ; desenha_rounds
+   248                                  ; Dois marcadores por jogador (circulo vazio = round ainda nao vencido,
+   249                                  ; circulo cheio = round vencido). J1 em X = 235/255, J2 em X = 405/385.
+   250                                  ; =============================================================================
+   251                                  desenha_rounds:
+   252 000000ED 50                              PUSH    AX
+   253 000000EE 53                              PUSH    BX
+   254 000000EF 51                              PUSH    CX
+   255                                  
+   256 000000F0 A0[0000]                        MOV     AL, [rounds_p1]
+   257 000000F3 BBEB00                          MOV     BX, 235
+   258 000000F6 B101                            MOV     CL, 1
+   259 000000F8 E81F00                          CALL    marcador
+   260 000000FB BBFF00                          MOV     BX, 255
+   261 000000FE B102                            MOV     CL, 2
+   262 00000100 E81700                          CALL    marcador
+   263                                  
+   264 00000103 A0[0000]                        MOV     AL, [rounds_p2]
+   265 00000106 BB9501                          MOV     BX, 405
+   266 00000109 B101                            MOV     CL, 1
+   267 0000010B E80C00                          CALL    marcador
+   268 0000010E BB8101                          MOV     BX, 385
+   269 00000111 B102                            MOV     CL, 2
+   270 00000113 E80400                          CALL    marcador
+   271                                  
+   272 00000116 59                              POP     CX
+   273 00000117 5B                              POP     BX
+   274 00000118 58                              POP     AX
+   275 00000119 C3                              RET
+   276                                  
+   277                                  ; Entrada: AL = rounds vencidos, CL = numero do marcador, BX = X do centro.
+   278                                  ; Desenha circulo cheio se AL >= CL, ou vazio caso contrario.
+   279                                  marcador:
+   280 0000011A 50                              PUSH    AX
+   281 0000011B 52                              PUSH    DX
+   282 0000011C C606[0000]0E                    MOV     byte [cor], amarelo
+   283 00000121 88C2                            MOV     DL, AL                      ; DL = rounds vencidos
+   284 00000123 53                              PUSH    BX                          ; xc
+   285 00000124 B8C201                          MOV     AX, 450
+   286 00000127 50                              PUSH    AX                          ; yc
+   287 00000128 B80600                          MOV     AX, 6
+   288 0000012B 50                              PUSH    AX                          ; r
+   289 0000012C 38CA                            CMP     DL, CL
+   290 0000012E 7306                            JAE     mc_cheio
+   291 00000130 E8(0000)                        CALL    circle                      ; consome xc, yc, r
+   292 00000133 E90300                          JMP     mc_fim
+   293                                  mc_cheio:
+   294 00000136 E8(0000)                        CALL    full_circle
+   295                                  mc_fim:
+   296 00000139 5A                              POP     DX
+   297 0000013A 58                              POP     AX
+   298 0000013B C3                              RET
+   299                                  
+   300                                  ; =============================================================================
+   301                                  ; desenha_tempo
+   302                                  ; Mostra o tempo restante do round no formato M:SS. So redesenha quando o
+   303                                  ; segundo muda (evita chamadas desnecessarias a BIOS).
+   304                                  ; =============================================================================
+   305                                  desenha_tempo:
+   306 0000013C 50                              PUSH    AX
+   307 0000013D 53                              PUSH    BX
+   308 0000013E 51                              PUSH    CX
+   309 0000013F 52                              PUSH    DX
+   310                                  
+   311 00000140 A1[0000]                        MOV     AX, [segundos]
+   312 00000143 3B06[0000]                      CMP     AX, [ultimo_seg]
+   313 00000147 745F                            JE      dt_fim
+   314 00000149 A3[0000]                        MOV     [ultimo_seg], AX
+   315                                  
+   316                                          ; Limpa fundo dos 3 digitos (X=304-327, Y=448-463)
+   317 0000014C C606[0000]00                    MOV     byte [cor], preto
+   318 00000151 B93001                          MOV     CX, 304
+   319                                  dt_limpa:
+   320 00000154 51                              PUSH    CX
+   321 00000155 B8C001                          MOV     AX, 448
+   322 00000158 50                              PUSH    AX
+   323 00000159 51                              PUSH    CX
+   324 0000015A B8CF01                          MOV     AX, 463
+   325 0000015D 50                              PUSH    AX
+   326 0000015E E8(0000)                        CALL    line
+   327 00000161 41                              INC     CX
+   328 00000162 81F94801                        CMP     CX, 328
+   329 00000166 7CEC                            JL      dt_limpa
+   330                                  
+   331 00000168 B8B400                          MOV     AX, TEMPO_ROUND
+   332 0000016B 2B06[0000]                      SUB     AX, [segundos]
+   333 0000016F 7902                            JNS     dt_pos
+   334 00000171 31C0                            XOR     AX, AX
+   335                                  dt_pos:
+   336 00000173 B364                            MOV     BL, 100
+   337 00000175 F6F3                            DIV     BL                          ; AL = centena, AH = resto 0-99
+   338 00000177 88E7                            MOV     BH, AH
+   339                                  
+   340 00000179 C606[0000]0F                    MOV     byte [cor], branco_intenso
+   341 0000017E B601                            MOV     DH, 1
+   342 00000180 B226                            MOV     DL, 38
+   343 00000182 E8(0000)                        CALL    cursor
+   344 00000185 0430                            ADD     AL, '0'
+   345 00000187 E8(0000)                        CALL    caracter
+   346                                  
+   347 0000018A 88F8                            MOV     AL, BH
+   348 0000018C 30E4                            XOR     AH, AH
+   349 0000018E B30A                            MOV     BL, 10
+   350 00000190 F6F3                            DIV     BL
    351                                  
-   352 000000F0 A0[0000]                        MOV     AL, [rounds_p1]
-   353 000000F3 BBEB00                          MOV     BX, 235
-   354 000000F6 B101                            MOV     CL, 1
-   355 000000F8 E81F00                          CALL    marcador
-   356 000000FB BBFF00                          MOV     BX, 255
-   357 000000FE B102                            MOV     CL, 2
-   358 00000100 E81700                          CALL    marcador
-   359                                  
-   360 00000103 A0[0000]                        MOV     AL, [rounds_p2]
-   361 00000106 BB9501                          MOV     BX, 405
-   362 00000109 B101                            MOV     CL, 1
-   363 0000010B E80C00                          CALL    marcador
-   364 0000010E BB8101                          MOV     BX, 385
-   365 00000111 B102                            MOV     CL, 2
-   366 00000113 E80400                          CALL    marcador
-   367                                  
-   368 00000116 59                              POP     CX
-   369 00000117 5B                              POP     BX
-   370 00000118 58                              POP     AX
-   371 00000119 C3                              RET
-   372                                  
-   373                                  ; Entrada: AL = rounds vencidos, CL = numero do marcador, BX = X do centro.
-   374                                  ; Desenha circulo cheio se AL >= CL, ou vazio caso contrario.
-   375                                  marcador:
-   376 0000011A 50                              PUSH    AX
-   377 0000011B 52                              PUSH    DX
-   378 0000011C C606[0000]0E                    MOV     byte [cor], amarelo
-   379 00000121 88C2                            MOV     DL, AL                      ; DL = rounds vencidos
-   380 00000123 53                              PUSH    BX                          ; xc
-   381 00000124 B8C201                          MOV     AX, 450
-   382 00000127 50                              PUSH    AX                          ; yc
-   383 00000128 B80600                          MOV     AX, 6
-   384 0000012B 50                              PUSH    AX                          ; r
-   385 0000012C 38CA                            CMP     DL, CL
-   386 0000012E 7306                            JAE     mc_cheio
-   387 00000130 E8(0000)                        CALL    circle                      ; consome xc, yc, r
-   388 00000133 E90300                          JMP     mc_fim
-   389                                  mc_cheio:
-   390 00000136 E8(0000)                        CALL    full_circle
-   391                                  mc_fim:
-   392 00000139 5A                              POP     DX
-   393 0000013A 58                              POP     AX
-   394 0000013B C3                              RET
-   395                                  
-   396                                  ; =============================================================================
-   397                                  ; desenha_tempo
-   398                                  ; Mostra o tempo restante do round no formato M:SS. So redesenha quando o
-   399                                  ; segundo muda (evita chamadas desnecessarias a BIOS).
-   400                                  ; =============================================================================
-   401                                  desenha_tempo:
-   402 0000013C 50                              PUSH    AX
-   403 0000013D 53                              PUSH    BX
-   404 0000013E 51                              PUSH    CX
-   405 0000013F 52                              PUSH    DX
-   406                                  
-   407 00000140 A1[0000]                        MOV     AX, [segundos]
-   408 00000143 3B06[0000]                      CMP     AX, [ultimo_seg]
-   409 00000147 745F                            JE      dt_fim
-   410 00000149 A3[0000]                        MOV     [ultimo_seg], AX
-   411                                  
-   412                                          ; Limpa fundo dos 3 digitos (X=304-327, Y=448-463)
-   413 0000014C C606[0000]00                    MOV     byte [cor], preto
-   414 00000151 B93001                          MOV     CX, 304
-   415                                  dt_limpa:
-   416 00000154 51                              PUSH    CX
-   417 00000155 B8C001                          MOV     AX, 448
-   418 00000158 50                              PUSH    AX
-   419 00000159 51                              PUSH    CX
-   420 0000015A B8CF01                          MOV     AX, 463
-   421 0000015D 50                              PUSH    AX
-   422 0000015E E8(0000)                        CALL    line
-   423 00000161 41                              INC     CX
-   424 00000162 81F94801                        CMP     CX, 328
-   425 00000166 7CEC                            JL      dt_limpa
-   426                                  
-   427 00000168 B8B400                          MOV     AX, TEMPO_ROUND
-   428 0000016B 2B06[0000]                      SUB     AX, [segundos]
-   429 0000016F 7902                            JNS     dt_pos
-   430 00000171 31C0                            XOR     AX, AX
-   431                                  dt_pos:
-   432 00000173 B364                            MOV     BL, 100
-   433 00000175 F6F3                            DIV     BL                          ; AL = centena, AH = resto 0-99
-   434 00000177 88E7                            MOV     BH, AH
-   435                                  
-   436 00000179 C606[0000]0F                    MOV     byte [cor], branco_intenso
-   437 0000017E B601                            MOV     DH, 1
-   438 00000180 B226                            MOV     DL, 38
-   439 00000182 E8(0000)                        CALL    cursor
-   440 00000185 0430                            ADD     AL, '0'
-   441 00000187 E8(0000)                        CALL    caracter
-   442                                  
-   443 0000018A 88F8                            MOV     AL, BH
-   444 0000018C 30E4                            XOR     AH, AH
-   445 0000018E B30A                            MOV     BL, 10
-   446 00000190 F6F3                            DIV     BL
-   447                                  
-   448 00000192 FEC2                            INC     DL
-   449 00000194 E8(0000)                        CALL    cursor
-   450 00000197 0430                            ADD     AL, '0'
-   451 00000199 E8(0000)                        CALL    caracter
-   452                                  
-   453 0000019C FEC2                            INC     DL
-   454 0000019E E8(0000)                        CALL    cursor
-   455 000001A1 88E0                            MOV     AL, AH
-   456 000001A3 0430                            ADD     AL, '0'
-   457 000001A5 E8(0000)                        CALL    caracter
-   458                                  
-   459                                  dt_fim:
-   460 000001A8 5A                              POP     DX
-   461 000001A9 59                              POP     CX
-   462 000001AA 5B                              POP     BX
-   463 000001AB 58                              POP     AX
-   464 000001AC C3                              RET
-   465                                  
-   466                                  ; =============================================================================
-   467                                  ; msg_centro
-   468                                  ; Entrada: DS:SI = texto terminado em 0, DH = linha, cor em [cor].
-   469                                  ; Escreve o texto centralizado horizontalmente (80 colunas).
-   470                                  ; =============================================================================
-   471                                  msg_centro:
-   472 000001AD 50                              PUSH    AX
-   473 000001AE 51                              PUSH    CX
-   474 000001AF 52                              PUSH    DX
-   475 000001B0 56                              PUSH    SI
-   476                                  
-   477 000001B1 31C9                            XOR     CX, CX                      ; CX = comprimento do texto
-   478                                  mc_conta:
-   479 000001B3 803C00                          CMP     byte [SI], 0
-   480 000001B6 7405                            JE      mc_posiciona
-   481 000001B8 41                              INC     CX
-   482 000001B9 46                              INC     SI
-   483 000001BA E9F6FF                          JMP     mc_conta
-   484                                  mc_posiciona:
-   485 000001BD 5E                              POP     SI
-   486 000001BE 56                              PUSH    SI
-   487 000001BF B85000                          MOV     AX, 80
-   488 000001C2 29C8                            SUB     AX, CX
-   489 000001C4 D1E8                            SHR     AX, 1                       ; coluna = (80 - comprimento) / 2
-   490 000001C6 88C2                            MOV     DL, AL
-   491 000001C8 E8(0000)                        CALL    escreve_texto
-   492                                  
-   493 000001CB 5E                              POP     SI
-   494 000001CC 5A                              POP     DX
-   495 000001CD 59                              POP     CX
-   496 000001CE 58                              POP     AX
-   497 000001CF C3                              RET
-   498                                  
-   499                                  ; =============================================================================
-   500                                  ; apaga_linha
-   501                                  ; Entrada: DH = linha de texto. Apaga as colunas 2..77 (dentro das paredes
-   502                                  ; da arena, que ficam nas colunas 1 e 78).
-   503                                  ; =============================================================================
-   504                                  apaga_linha:
-   505 000001D0 51                              PUSH    CX
-   506 000001D1 52                              PUSH    DX
-   507 000001D2 B202                            MOV     DL, 2
-   508 000001D4 B94C00                          MOV     CX, 76
-   509 000001D7 E8(0000)                        CALL    apaga_texto
-   510 000001DA 5A                              POP     DX
-   511 000001DB 59                              POP     CX
-   512 000001DC C3                              RET
-   513                                  
-   514                                  ; =============================================================================
-   515                                  segment data public class=DATA
-   516                                  
-   517 00000000 FFFF                    ultimo_seg      DW      0FFFFh      ; ultimo valor de segundos desenhado
+   352 00000192 FEC2                            INC     DL
+   353 00000194 E8(0000)                        CALL    cursor
+   354 00000197 0430                            ADD     AL, '0'
+   355 00000199 E8(0000)                        CALL    caracter
+   356                                  
+   357 0000019C FEC2                            INC     DL
+   358 0000019E E8(0000)                        CALL    cursor
+   359 000001A1 88E0                            MOV     AL, AH
+   360 000001A3 0430                            ADD     AL, '0'
+   361 000001A5 E8(0000)                        CALL    caracter
+   362                                  
+   363                                  dt_fim:
+   364 000001A8 5A                              POP     DX
+   365 000001A9 59                              POP     CX
+   366 000001AA 5B                              POP     BX
+   367 000001AB 58                              POP     AX
+   368 000001AC C3                              RET
+   369                                  
+   370                                  ; =============================================================================
+   371                                  ; msg_centro
+   372                                  ; Entrada: DS:SI = texto terminado em 0, DH = linha, cor em [cor].
+   373                                  ; Escreve o texto centralizado horizontalmente (80 colunas).
+   374                                  ; =============================================================================
+   375                                  msg_centro:
+   376 000001AD 50                              PUSH    AX
+   377 000001AE 51                              PUSH    CX
+   378 000001AF 52                              PUSH    DX
+   379 000001B0 56                              PUSH    SI
+   380                                  
+   381 000001B1 31C9                            XOR     CX, CX                      ; CX = comprimento do texto
+   382                                  mc_conta:
+   383 000001B3 803C00                          CMP     byte [SI], 0
+   384 000001B6 7405                            JE      mc_posiciona
+   385 000001B8 41                              INC     CX
+   386 000001B9 46                              INC     SI
+   387 000001BA E9F6FF                          JMP     mc_conta
+   388                                  mc_posiciona:
+   389 000001BD 5E                              POP     SI
+   390 000001BE 56                              PUSH    SI
+   391 000001BF B85000                          MOV     AX, 80
+   392 000001C2 29C8                            SUB     AX, CX
+   393 000001C4 D1E8                            SHR     AX, 1                       ; coluna = (80 - comprimento) / 2
+   394 000001C6 88C2                            MOV     DL, AL
+   395 000001C8 E8(0000)                        CALL    escreve_texto
+   396                                  
+   397 000001CB 5E                              POP     SI
+   398 000001CC 5A                              POP     DX
+   399 000001CD 59                              POP     CX
+   400 000001CE 58                              POP     AX
+   401 000001CF C3                              RET
+   402                                  
+   403                                  ; =============================================================================
+   404                                  ; apaga_linha
+   405                                  ; Entrada: DH = linha de texto. Apaga as colunas 2..77 (dentro das paredes
+   406                                  ; da arena, que ficam nas colunas 1 e 78).
+   407                                  ; =============================================================================
+   408                                  apaga_linha:
+   409 000001D0 51                              PUSH    CX
+   410 000001D1 52                              PUSH    DX
+   411 000001D2 B202                            MOV     DL, 2
+   412 000001D4 B94C00                          MOV     CX, 76
+   413 000001D7 E8(0000)                        CALL    apaga_texto
+   414 000001DA 5A                              POP     DX
+   415 000001DB 59                              POP     CX
+   416 000001DC C3                              RET
+   417                                  
+   418                                  ; =============================================================================
+   419                                  segment data public class=DATA
+   420                                  
+   421 00000000 FFFF                    ultimo_seg      DW      0FFFFh      ; ultimo valor de segundos desenhado
