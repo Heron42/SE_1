@@ -1,116 +1,96 @@
      1                                  ; =============================================================================
      2                                  ; colisao.asm  -  Deteccao de golpes validos (soco e chute)
-     3                                  ; -----------------------------------------------------------------------------
-     4                                  ; Um golpe so causa dano no FRAME DE IMPACTO da animacao (um unico frame por
-     5                                  ; golpe), de modo que cada soco/chute tira no maximo 1 ponto de energia.
-     6                                  ;
-     7                                  ; Condicoes de acerto:
-     8                                  ;   SOCO  : |x_atacante - x_defensor| <= ALCANCE_SOCO
-     9                                  ;           |y_atacante - y_defensor| <= TOLERANCIA_Y (mesma altura)
-    10                                  ;           defensor NAO esta abaixado          -> defesa: abaixar ou pular
-    11                                  ;   CHUTE : |x_atacante - x_defensor| <= ALCANCE_CHUTE
-    12                                  ;           defensor NAO esta no ar             -> defesa: pular
-    13                                  ;
-    14                                  ; Rotina publica: verifica_golpe
-    15                                  ; =============================================================================
+     3                                  ; =============================================================================
+     4                                  
+     5                                  ;  Colisao 
+     6                                  ALCANCE_SOCO    EQU     68          ; distancia maxima em X para o soco acertar
+     7                                  ALCANCE_CHUTE   EQU     74          ; distancia maxima em X para o chute acertar
+     8                                  TOLERANCIA_Y    EQU     25          ; diferenca de altura maxima para o soco
+     9                                  FRAME_IMPACTO_SOCO  EQU 2           ; frame da animacao em que o soco pega
+    10                                  FRAME_IMPACTO_CHUTE EQU 3           ; frame da animacao em que o chute pega
+    11                                  
+    12                                  ;  Estados de animacao 
+    13                                  EST_SOCO        EQU     2
+    14                                  EST_CHUTE       EQU     3
+    15                                  EST_ABAIXA      EQU     4
     16                                  
-    17                                  ; ------------------------------- Constantes (EQU) -----------------------------
-    18                                  ; Constantes usadas por este modulo. Um EQU nao ocupa memoria: o montador
-    19                                  ; troca o nome pelo valor. As que aparecem em mais de um modulo (estrutura do
-    20                                  ; jogador, cores, scan codes, regras) precisam ter o MESMO valor em todos.
-    21                                  
-    22                                  ; ------------------------------- Colisao --------------------------------------
-    23                                  ALCANCE_SOCO    EQU     68          ; distancia maxima em X para o soco acertar
-    24                                  ALCANCE_CHUTE   EQU     74          ; distancia maxima em X para o chute acertar
-    25                                  TOLERANCIA_Y    EQU     25          ; diferenca de altura maxima para o soco
-    26                                  FRAME_IMPACTO_SOCO  EQU 2           ; frame da animacao em que o soco "pega"
-    27                                  FRAME_IMPACTO_CHUTE EQU 3           ; frame da animacao em que o chute "pega"
-    28                                  
-    29                                  ; ------------------------------- Estados de animacao --------------------------
-    30                                  EST_SOCO        EQU     2
-    31                                  EST_CHUTE       EQU     3
-    32                                  EST_ABAIXA      EQU     4
-    33                                  
-    34                                  ; ------------------------------- Estrutura de um jogador (20 bytes) -----------
-    35                                  ; Acesse sempre como [SI+campo] ou [jogadorN+campo].
-    36                                  JX              EQU     0           ; dw  posicao X atual (centro do tronco)
-    37                                  JY              EQU     2           ; dw  posicao Y atual (ombros)
-    38                                  JFRAME          EQU     8           ; db  frame atual da animacao
-    39                                  JENERGIA        EQU     13          ; db  energia (comeca em ENERGIA_INICIAL)
-    40                                  JESTADO         EQU     14          ; db  estado de animacao (EST_*)
-    41                                  JPULO           EQU     18          ; db  1 = no ar, 0 = no chao
-    42                                  
-    43                                  global  verifica_golpe
-    44                                  
-    45                                  extern  atualiza_barra              ; hud.asm
-    46                                  extern  ultimo_golpe                ; logica.asm
-    47                                  extern  jogador1                    ; jogador.asm
-    48                                  
-    49                                  segment code public class=CODE
-    50                                  
-    51                                  ; =============================================================================
-    52                                  ; verifica_golpe
-    53                                  ; Entrada: SI = atacante, DI = defensor.
-    54                                  ; Se o golpe for valido, decrementa a energia do defensor, atualiza a barra
-    55                                  ; na tela e registra quem acertou por ultimo (usado no desempate).
-    56                                  ; =============================================================================
-    57                                  verifica_golpe:
-    58 00000000 50                              PUSH    AX
-    59 00000001 53                              PUSH    BX
-    60                                  
-    61 00000002 8A440E                          MOV     AL, [SI+JESTADO]
-    62 00000005 8A6408                          MOV     AH, [SI+JFRAME]
-    63                                  
-    64 00000008 3C02                            CMP     AL, EST_SOCO
-    65 0000000A 7407                            JE      vg_testa_soco
-    66 0000000C 3C03                            CMP     AL, EST_CHUTE
-    67 0000000E 7423                            JE      vg_testa_chute
-    68 00000010 E95600                          JMP     vg_fim
-    69                                  
-    70                                          ; ---- soco ------------------------------------------------------------
-    71                                  vg_testa_soco:
-    72 00000013 80FC02                          CMP     AH, FRAME_IMPACTO_SOCO
-    73 00000016 7551                            JNE     vg_fim
-    74 00000018 807D0E04                        CMP     byte [DI+JESTADO], EST_ABAIXA   ; defensor abaixado: soco passa por cima
-    75 0000001C 744B                            JE      vg_fim
-    76 0000001E 8B4402                          MOV     AX, [SI+JY]                     ; mesma altura?
-    77 00000021 2B4502                          SUB     AX, [DI+JY]
-    78 00000024 7902                            JNS     vg_soco_abs_y
-    79 00000026 F7D8                            NEG     AX
-    80                                  vg_soco_abs_y:
-    81 00000028 3D1900                          CMP     AX, TOLERANCIA_Y
-    82 0000002B 7F3C                            JG      vg_fim                          ; defensor no ar (ou atacante)
-    83 0000002D BB4400                          MOV     BX, ALCANCE_SOCO
-    84 00000030 E90E00                          JMP     vg_checa_dist_x
-    85                                  
-    86                                          ; ---- chute -----------------------------------------------------------
-    87                                  vg_testa_chute:
-    88 00000033 80FC03                          CMP     AH, FRAME_IMPACTO_CHUTE
-    89 00000036 7531                            JNE     vg_fim
-    90 00000038 807D1200                        CMP     byte [DI+JPULO], 0              ; defensor no ar: chute passa por baixo
-    91 0000003C 752B                            JNE     vg_fim
-    92 0000003E BB4A00                          MOV     BX, ALCANCE_CHUTE
-    93                                  
-    94                                          ; ---- distancia horizontal -------------------------------------------
-    95                                  vg_checa_dist_x:
-    96 00000041 8B04                            MOV     AX, [SI+JX]
-    97 00000043 2B05                            SUB     AX, [DI+JX]
-    98 00000045 7902                            JNS     vg_abs_x
-    99 00000047 F7D8                            NEG     AX
-   100                                  vg_abs_x:
-   101 00000049 39D8                            CMP     AX, BX
-   102 0000004B 7F1C                            JG      vg_fim                          ; longe demais
-   103                                  
-   104                                          ; ---- golpe valido ----------------------------------------------------
-   105 0000004D 807D0D00                        CMP     byte [DI+JENERGIA], 0
-   106 00000051 7416                            JE      vg_fim
-   107 00000053 FE4D0D                          DEC     byte [DI+JENERGIA]
-   108 00000056 E8(0000)                        CALL    atualiza_barra
-   109 00000059 C606[0000]01                    MOV     byte [ultimo_golpe], 1          ; registra quem acertou
-   110 0000005E 81FE[0000]                      CMP     SI, jogador1
-   111 00000062 7405                            JE      vg_fim
-   112 00000064 C606[0000]02                    MOV     byte [ultimo_golpe], 2
-   113                                  vg_fim:
-   114 00000069 5B                              POP     BX
-   115 0000006A 58                              POP     AX
-   116 0000006B C3                              RET
+    17                                  ;  Estrutura de um jogador 
+    18                                  JX              EQU     0           ; dw  posicao X atual (centro do tronco)
+    19                                  JY              EQU     2           ; dw  posicao Y atual (ombros)
+    20                                  JFRAME          EQU     8           ; db  frame atual da animacao
+    21                                  JENERGIA        EQU     13          ; db  energia (comeca em ENERGIA_INICIAL)
+    22                                  JESTADO         EQU     14          ; db  estado de animacao (EST_*)
+    23                                  JPULO           EQU     18          ; db  1 = no ar, 0 = no chao
+    24                                  
+    25                                  global  verifica_golpe
+    26                                  
+    27                                  extern  atualiza_barra              ; hud.asm
+    28                                  extern  ultimo_golpe                ; logica.asm
+    29                                  extern  jogador1                    ; jogador.asm
+    30                                  
+    31                                  segment code public class=CODE
+    32                                  
+    33                                  ; verifica_golpe
+    34                                  ; Entrada: SI = atacante, DI = defensor.
+    35                                  ; Se o golpe for valido, decrementa a energia do defensor, atualiza a barra
+    36                                  ; na tela e registra quem acertou por ultimo
+    37                                  verifica_golpe:
+    38 00000000 50                              PUSH    AX
+    39 00000001 53                              PUSH    BX
+    40                                  
+    41 00000002 8A440E                          MOV     AL, [SI+JESTADO]
+    42 00000005 8A6408                          MOV     AH, [SI+JFRAME]
+    43                                  
+    44 00000008 3C02                            CMP     AL, EST_SOCO
+    45 0000000A 7407                            JE      vg_testa_soco
+    46 0000000C 3C03                            CMP     AL, EST_CHUTE
+    47 0000000E 7423                            JE      vg_testa_chute
+    48 00000010 E95600                          JMP     vg_fim
+    49                                  
+    50                                          ;soco 
+    51                                  vg_testa_soco:
+    52 00000013 80FC02                          CMP     AH, FRAME_IMPACTO_SOCO
+    53 00000016 7551                            JNE     vg_fim
+    54 00000018 807D0E04                        CMP     byte [DI+JESTADO], EST_ABAIXA   ; oponente abaixado
+    55 0000001C 744B                            JE      vg_fim
+    56 0000001E 8B4402                          MOV     AX, [SI+JY]
+    57 00000021 2B4502                          SUB     AX, [DI+JY]
+    58 00000024 7902                            JNS     vg_soco_abs_y
+    59 00000026 F7D8                            NEG     AX
+    60                                  vg_soco_abs_y:
+    61 00000028 3D1900                          CMP     AX, TOLERANCIA_Y
+    62 0000002B 7F3C                            JG      vg_fim                          ; oponente/jogador no ar
+    63 0000002D BB4400                          MOV     BX, ALCANCE_SOCO
+    64 00000030 E90E00                          JMP     vg_checa_dist_x
+    65                                  
+    66                                          ;chute 
+    67                                  vg_testa_chute:
+    68 00000033 80FC03                          CMP     AH, FRAME_IMPACTO_CHUTE
+    69 00000036 7531                            JNE     vg_fim
+    70 00000038 807D1200                        CMP     byte [DI+JPULO], 0              ; oponente no ar
+    71 0000003C 752B                            JNE     vg_fim
+    72 0000003E BB4A00                          MOV     BX, ALCANCE_CHUTE
+    73                                  
+    74                                          ;distancia horizontal 
+    75                                  vg_checa_dist_x:
+    76 00000041 8B04                            MOV     AX, [SI+JX]
+    77 00000043 2B05                            SUB     AX, [DI+JX]
+    78 00000045 7902                            JNS     vg_abs_x
+    79 00000047 F7D8                            NEG     AX
+    80                                  vg_abs_x:
+    81 00000049 39D8                            CMP     AX, BX
+    82 0000004B 7F1C                            JG      vg_fim                          ; longe demais
+    83                                  
+    84                                          ;golpe valido 
+    85 0000004D 807D0D00                        CMP     byte [DI+JENERGIA], 0
+    86 00000051 7416                            JE      vg_fim
+    87 00000053 FE4D0D                          DEC     byte [DI+JENERGIA]
+    88 00000056 E8(0000)                        CALL    atualiza_barra
+    89 00000059 C606[0000]01                    MOV     byte [ultimo_golpe], 1          ; registra quem acertou
+    90 0000005E 81FE[0000]                      CMP     SI, jogador1
+    91 00000062 7405                            JE      vg_fim
+    92 00000064 C606[0000]02                    MOV     byte [ultimo_golpe], 2
+    93                                  vg_fim:
+    94 00000069 5B                              POP     BX
+    95 0000006A 58                              POP     AX
+    96 0000006B C3                              RET

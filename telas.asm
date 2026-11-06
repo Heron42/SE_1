@@ -13,13 +13,10 @@ TEC_BAIXO       EQU     50h         ; seta para baixo
 
 ; Cores (paleta padrao VGA)
 vermelho        EQU     4           ; 0 1 0 0
-marrom          EQU     6           ; 0 1 1 0
 branco          EQU     7           ; 0 1 1 1
 cinza           EQU     8           ; 1 0 0 0
 azul_claro      EQU     9           ; 1 0 0 1
 verde_claro     EQU     10          ; 1 0 1 0
-cyan_claro      EQU     11          ; 1 0 1 1
-magenta_claro   EQU     13          ; 1 1 0 1
 amarelo         EQU     14          ; 1 1 1 0
 branco_intenso  EQU     15          ; 1 1 1 1
 
@@ -64,7 +61,8 @@ extern  vencedor
 extern  vencedor_round
 extern  motivo_fim
 
-NUM_CORES       EQU     8           ; potencia de 2 
+NUM_CORES       EQU     4           ; potencia de 2 (o AND com NUM_CORES-1
+                                    ; faz a lista dar a volta)
 LIN_TITULO      EQU     2
 LIN_CABECALHO   EQU     5
 LIN_LISTA       EQU     7           ; primeira linha da lista de cores
@@ -479,19 +477,13 @@ idx_j1          DB      0           ; cor atual do J1
 idx_j2          DB      1           ; cor atual do J2
 
 tabela_cores    DB      azul_claro, vermelho, verde_claro, amarelo
-                DB      magenta_claro, cyan_claro, branco_intenso, marrom
 
 tabela_nomes    DW      nome_0, nome_1, nome_2, nome_3
-                DW      nome_4, nome_5, nome_6, nome_7
 
 nome_0          DB      'AZUL    ', 0
 nome_1          DB      'VERMELHO', 0
 nome_2          DB      'VERDE   ', 0
 nome_3          DB      'AMARELO ', 0
-nome_4          DB      'MAGENTA ', 0
-nome_5          DB      'CIANO   ', 0
-nome_6          DB      'BRANCO  ', 0
-nome_7          DB      'MARROM  ', 0
 
 str_marca_on    DB      '>', 0
 str_marca_off   DB      ' ', 0

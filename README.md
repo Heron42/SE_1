@@ -40,7 +40,7 @@ Os arquivos gerados na montagem (`.obj` e `.lst`) não são versionados (ver `.g
 
 ## Como jogar
 
-1. **Seleção de lutadores.** O J1 escolhe a cor com **W/S** e o J2 com **↑/↓**. **Enter** inicia a luta. Há 8 cores; a cor já escolhida pelo adversário é pulada automaticamente. A tela não mostra esses comandos; eles estão descritos aqui.
+1. **Seleção de lutadores.** O J1 escolhe a cor com **W/S** e o J2 com **↑/↓**. **Enter** inicia a luta. Há 4 cores (azul, vermelho, verde e amarelo); a cor já escolhida pelo adversário é pulada automaticamente. A tela não mostra esses comandos; eles estão descritos aqui.
 2. **Luta.** Os controles são:
 
    | Ação | Jogador 1 | Jogador 2 |
@@ -64,7 +64,7 @@ Os arquivos gerados na montagem (`.obj` e `.lst`) não são versionados (ver `.g
 * **Chute (rasteira):** acerta se o adversário estiver perto e no chão. **Defesa:** pular.
 * Cada golpe só causa dano uma vez, no frame de impacto da animação.
 * O round termina quando um lutador chega a energia 0 ou quando o tempo de **3 minutos** acaba. O tempo restante aparece no centro do HUD, em segundos (de 180 a 0).
-* A partida é em **melhor de três**: vence quem ganhar 2 rounds.
+* A partida é em **melhor de três**: vence quem ganhar 2 rounds. No HUD, cada jogador tem dois quadrados amarelos: o contorno indica round ainda não vencido, e o quadrado cheio, round vencido.
 
 ### Critério de vencedor do round
 

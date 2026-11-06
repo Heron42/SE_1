@@ -1,196 +1,155 @@
-     1                                  ; =============================================================================
-     2                                  ; teclado.asm  -  Tratamento do teclado pela interrupcao de hardware INT 9h
-     3                                  ; -----------------------------------------------------------------------------
-     4                                  ; Baseado no programa Tecbuf da disciplina. A ISR le o scan code direto da
-     5                                  ; porta 60h e mantem DUAS estruturas:
-     6                                  ;   teclas[128] : tabela de estado, 1 = tecla pressionada, 0 = solta.
-     7                                  ;                 Usada para o movimento continuo dos lutadores (os dois
-     8                                  ;                 jogadores podem segurar teclas ao mesmo tempo).
-     9                                  ;   buffer[16]  : fila circular de scan codes, usada para comandos pontuais
-    10                                  ;                 (P, Q, Y, N, Enter, selecao de cores).
-    11                                  ; Nenhuma leitura de tecla usa a INT 21h.
-    12                                  ;
-    13                                  ; Rotinas publicas:
-    14                                  ;   instala_teclado  : salva o vetor original da INT 9h e instala keyINT
-    15                                  ;   restaura_teclado : devolve o vetor original
-    16                                  ;   le_evento        : retira o proximo codigo MAKE da fila (CF=1 se vazia)
-    17                                  ;   espera_evento    : bloqueia (com HLT) ate chegar um codigo MAKE
-    18                                  ;   limpa_eventos    : descarta tudo o que estiver na fila
-    19                                  ; =============================================================================
-    20                                  
-    21                                  ; ------------------------------- Constantes (EQU) -----------------------------
-    22                                  ; Constantes usadas por este modulo. Um EQU nao ocupa memoria: o montador
-    23                                  ; troca o nome pelo valor. As que aparecem em mais de um modulo (estrutura do
-    24                                  ; jogador, cores, scan codes, regras) precisam ter o MESMO valor em todos.
-    25                                  
-    26                                  ; ------------------------------- Hardware -------------------------------------
-    27                                  KB_DATA         EQU     60h         ; porta de dados do teclado (8042)
-    28                                  KB_CTL          EQU     61h         ; porta de controle do teclado (8255 PB)
-    29                                  PICTRL          EQU     20h         ; porta de comando do PIC 8259
-    30                                  EOI             EQU     20h         ; comando End Of Interrupt
-    31                                  INT_TEC         EQU     09h         ; interrupcao de hardware do teclado (IRQ1)
-    32                                  
-    33                                  global  instala_teclado
-    34                                  global  restaura_teclado
-    35                                  global  le_evento
-    36                                  global  espera_evento
-    37                                  global  limpa_eventos
-    38                                  global  teclas
+     1                                  ; teclado.asm  -  Tratamento do teclado pela interrupcao de hardware INT 9h
+     2                                  
+     3                                  ; Hardware
+     4                                  KB_DATA         EQU     60h         ; porta de dados do teclado (8042)
+     5                                  KB_CTL          EQU     61h         ; porta de controle do teclado (8255 PB)
+     6                                  PICTRL          EQU     20h         ; porta de comando do PIC 8259
+     7                                  EOI             EQU     20h         ; comando End Of Interrupt
+     8                                  INT_TEC         EQU     09h         ; interrupcao de hardware do teclado (IRQ1)
+     9                                  
+    10                                  global  instala_teclado
+    11                                  global  restaura_teclado
+    12                                  global  le_evento
+    13                                  global  espera_evento
+    14                                  global  limpa_eventos
+    15                                  global  teclas
+    16                                  
+    17                                  TAM_BUFFER      EQU     16          ; potencia de 2 (indice mascarado)
+    18                                  MASCARA_BUFFER  EQU     TAM_BUFFER - 1
+    19                                  
+    20                                  segment code public class=CODE
+    21                                  
+    22                                  ; instala_teclado
+    23                                  instala_teclado:
+    24 00000000 50                              PUSH    AX
+    25 00000001 06                              PUSH    ES
+    26 00000002 FA                              CLI                            
+    27 00000003 31C0                            XOR     AX, AX
+    28 00000005 8EC0                            MOV     ES, AX                   
+    29 00000007 26A12400                        MOV     AX, [ES:INT_TEC*4]       
+    30 0000000B A3[0200]                        MOV     [offset_tec], AX
+    31 0000000E 26A12600                        MOV     AX, [ES:INT_TEC*4+2]    
+    32 00000012 A3[0000]                        MOV     [cs_tec], AX
+    33 00000015 268C0E2600                      MOV     [ES:INT_TEC*4+2], CS    
+    34 0000001A 26C7062400[7500]                MOV     WORD [ES:INT_TEC*4], keyINT
+    35 00000021 FB                              STI
+    36 00000022 07                              POP     ES
+    37 00000023 58                              POP     AX
+    38 00000024 C3                              RET
     39                                  
-    40                                  TAM_BUFFER      EQU     16          ; potencia de 2 (indice mascarado)
-    41                                  MASCARA_BUFFER  EQU     TAM_BUFFER - 1
-    42                                  
-    43                                  segment code public class=CODE
-    44                                  
-    45                                  ; -----------------------------------------------------------------------------
-    46                                  ; instala_teclado: salva o vetor da INT 9h e aponta-o para keyINT.
-    47                                  ; -----------------------------------------------------------------------------
-    48                                  instala_teclado:
-    49 00000000 50                              PUSH    AX
-    50 00000001 06                              PUSH    ES
-    51 00000002 FA                              CLI                                 ; ninguem interrompe durante a troca
-    52 00000003 31C0                            XOR     AX, AX
-    53 00000005 8EC0                            MOV     ES, AX                      ; ES = 0000h -> tabela de vetores
-    54 00000007 26A12400                        MOV     AX, [ES:INT_TEC*4]          ; IP original
-    55 0000000B A3[0200]                        MOV     [offset_tec], AX
-    56 0000000E 26A12600                        MOV     AX, [ES:INT_TEC*4+2]        ; CS original
-    57 00000012 A3[0000]                        MOV     [cs_tec], AX
-    58 00000015 268C0E2600                      MOV     [ES:INT_TEC*4+2], CS        ; instala a nossa ISR
-    59 0000001A 26C7062400[7500]                MOV     WORD [ES:INT_TEC*4], keyINT
-    60 00000021 FB                              STI
-    61 00000022 07                              POP     ES
-    62 00000023 58                              POP     AX
-    63 00000024 C3                              RET
-    64                                  
-    65                                  ; -----------------------------------------------------------------------------
-    66                                  ; restaura_teclado: devolve o vetor original da INT 9h (retorno seguro ao DOS).
-    67                                  ; -----------------------------------------------------------------------------
-    68                                  restaura_teclado:
-    69 00000025 50                              PUSH    AX
-    70 00000026 06                              PUSH    ES
-    71 00000027 FA                              CLI
-    72 00000028 31C0                            XOR     AX, AX
-    73 0000002A 8EC0                            MOV     ES, AX
-    74 0000002C A1[0000]                        MOV     AX, [cs_tec]
-    75 0000002F 26A32600                        MOV     [ES:INT_TEC*4+2], AX
-    76 00000033 A1[0200]                        MOV     AX, [offset_tec]
-    77 00000036 26A32400                        MOV     [ES:INT_TEC*4], AX
-    78 0000003A FB                              STI
-    79 0000003B 07                              POP     ES
-    80 0000003C 58                              POP     AX
-    81 0000003D C3                              RET
-    82                                  
-    83                                  ; -----------------------------------------------------------------------------
-    84                                  ; le_evento
-    85                                  ; Saida: CF = 0 e AL = scan code MAKE da proxima tecla pressionada, ou
-    86                                  ;        CF = 1 se a fila nao tiver nenhum codigo MAKE pendente.
-    87                                  ; Os codigos BREAK (bit 7 = 1) sao descartados: so interessam ao movimento,
-    88                                  ; que e tratado pela tabela de estado.
-    89                                  ; -----------------------------------------------------------------------------
-    90                                  le_evento:
-    91 0000003E 53                              PUSH    BX
-    92                                  le_prox:
-    93 0000003F 8B1E[1600]                      MOV     BX, [p_t]
-    94 00000043 3B1E[1400]                      CMP     BX, [p_i]
-    95 00000047 7414                            JE      le_vazio                    ; fila vazia
-    96 00000049 43                              INC     BX
-    97 0000004A 81E30F00                        AND     BX, MASCARA_BUFFER
-    98 0000004E 891E[1600]                      MOV     [p_t], BX
-    99 00000052 8A87[0400]                      MOV     AL, [buffer+BX]
-   100 00000056 A880                            TEST    AL, 80h
-   101 00000058 75E5                            JNZ     le_prox                     ; BREAK: ignora e tenta o proximo
-   102 0000005A F8                              CLC
-   103 0000005B 5B                              POP     BX
-   104 0000005C C3                              RET
-   105                                  le_vazio:
-   106 0000005D F9                              STC
-   107 0000005E 5B                              POP     BX
-   108 0000005F C3                              RET
-   109                                  
-   110                                  ; -----------------------------------------------------------------------------
-   111                                  ; espera_evento
-   112                                  ; Saida: AL = scan code MAKE. Enquanto a fila estiver vazia o processador
-   113                                  ; fica em HLT ate a proxima interrupcao (teclado ou relogio), sem laco de
-   114                                  ; atraso por software.
-   115                                  ; -----------------------------------------------------------------------------
-   116                                  espera_evento:
-   117 00000060 E8DBFF                          CALL    le_evento
-   118 00000063 7304                            JNC     ee_fim
-   119 00000065 F4                              HLT
-   120 00000066 E9F7FF                          JMP     espera_evento
-   121                                  ee_fim:
-   122 00000069 C3                              RET
-   123                                  
-   124                                  ; -----------------------------------------------------------------------------
-   125                                  ; limpa_eventos: descarta os codigos pendentes (usado ao trocar de tela).
-   126                                  ; -----------------------------------------------------------------------------
-   127                                  limpa_eventos:
-   128 0000006A 50                              PUSH    AX
-   129 0000006B FA                              CLI
-   130 0000006C A1[1400]                        MOV     AX, [p_i]
-   131 0000006F A3[1600]                        MOV     [p_t], AX
-   132 00000072 FB                              STI
-   133 00000073 58                              POP     AX
-   134 00000074 C3                              RET
-   135                                  
-   136                                  ; =============================================================================
-   137                                  ; keyINT  -  ISR do teclado (INT 9h)
-   138                                  ; As setas chegam como E0h + codigo; o prefixo E0h e ignorado, de modo que
-   139                                  ; seta esquerda = 4Bh, seta direita = 4Dh etc.
-   140                                  ; =============================================================================
-   141                                  keyINT:
-   142 00000075 50                              PUSH    AX
-   143 00000076 53                              PUSH    BX
-   144 00000077 1E                              PUSH    DS
-   145 00000078 B8[0000]                        MOV     AX, data                    ; garante DS correto dentro da ISR
-   146 0000007B 8ED8                            MOV     DS, AX
-   147                                  
-   148 0000007D E460                            IN      AL, KB_DATA                 ; le o codigo make/break (porta 60h)
-   149 0000007F 3CE0                            CMP     AL, 0E0h                    ; prefixo de tecla estendida
-   150 00000081 7432                            JE      ki_ack
-   151 00000083 3CE1                            CMP     AL, 0E1h                    ; prefixo da tecla Pause
-   152 00000085 742E                            JE      ki_ack
-   153                                  
-   154                                          ; ---- grava na fila circular (comandos)
-   155 00000087 8B1E[1400]                      MOV     BX, [p_i]
-   156 0000008B 43                              INC     BX
-   157 0000008C 81E30F00                        AND     BX, MASCARA_BUFFER
-   158 00000090 3B1E[1600]                      CMP     BX, [p_t]                   ; fila cheia? descarta o codigo
-   159 00000094 7408                            JE      ki_estado                   ; (em vez de sobrescrever os antigos)
-   160 00000096 891E[1400]                      MOV     [p_i], BX
-   161 0000009A 8887[0400]                      MOV     [buffer+BX], AL
-   162                                  
-   163                                  ki_estado:
-   164                                          ; ---- atualiza a tabela de estado (movimento)
-   165 0000009E 88C3                            MOV     BL, AL
-   166 000000A0 81E37F00                        AND     BX, 007Fh                   ; BX = codigo sem o bit 7 (e BH = 0)
-   167 000000A4 A880                            TEST    AL, 80h                     ; bit 7 = 1 -> break (soltou)
-   168 000000A6 7508                            JNZ     ki_solta
-   169 000000A8 C687[1800]01                    MOV     byte [teclas+BX], 1
-   170 000000AD E90500                          JMP     ki_ack
-   171                                  ki_solta:
-   172 000000B0 C687[1800]00                    MOV     byte [teclas+BX], 0
-   173                                  
-   174                                  ki_ack:
-   175 000000B5 E461                            IN      AL, KB_CTL                  ; reconhece o dado (pulso no bit 7
-   176 000000B7 0C80                            OR      AL, 80h                     ;  da porta 61h, como no Tecbuf)
-   177 000000B9 E661                            OUT     KB_CTL, AL
-   178 000000BB 247F                            AND     AL, 7Fh
-   179 000000BD E661                            OUT     KB_CTL, AL
-   180 000000BF B020                            MOV     AL, EOI                     ; fim de interrupcao para o PIC
-   181 000000C1 E620                            OUT     PICTRL, AL
-   182                                  
-   183 000000C3 1F                              POP     DS
-   184 000000C4 5B                              POP     BX
-   185 000000C5 58                              POP     AX
-   186 000000C6 CF                              IRET
-   187                                  
-   188                                  ; =============================================================================
-   189                                  segment data public class=DATA
-   190                                  
-   191 00000000 0000                    cs_tec          DW      0                   ; CS original da INT 9h
-   192 00000002 0000                    offset_tec      DW      0                   ; IP original da INT 9h
-   193 00000004 00<rept>                buffer          TIMES TAM_BUFFER DB 0       ; fila circular de scan codes
-   194 00000014 0000                    p_i             DW      0                   ; indice de escrita (ISR)
-   195 00000016 0000                    p_t             DW      0                   ; indice de leitura (programa)
-   196 00000018 00<rept>                teclas          TIMES 128 DB 0              ; tabela de estado: 1 = pressionada
+    40                                  ; restaura_teclado: devolve o vetor original da INT 9h (retorno seguro ao DOS).
+    41                                  restaura_teclado:
+    42 00000025 50                              PUSH    AX
+    43 00000026 06                              PUSH    ES
+    44 00000027 FA                              CLI
+    45 00000028 31C0                            XOR     AX, AX
+    46 0000002A 8EC0                            MOV     ES, AX
+    47 0000002C A1[0000]                        MOV     AX, [cs_tec]
+    48 0000002F 26A32600                        MOV     [ES:INT_TEC*4+2], AX
+    49 00000033 A1[0200]                        MOV     AX, [offset_tec]
+    50 00000036 26A32400                        MOV     [ES:INT_TEC*4], AX
+    51 0000003A FB                              STI
+    52 0000003B 07                              POP     ES
+    53 0000003C 58                              POP     AX
+    54 0000003D C3                              RET
+    55                                  
+    56                                  ; le_evento
+    57                                  ; Saida: CF = 0 e AL = scan code MAKE da proxima tecla pressionada, ou
+    58                                  ;        CF = 1 se a fila nao tiver nenhum codigo MAKE pendente.
+    59                                  le_evento:
+    60 0000003E 53                              PUSH    BX
+    61                                  le_prox:
+    62 0000003F 8B1E[1600]                      MOV     BX, [p_t]
+    63 00000043 3B1E[1400]                      CMP     BX, [p_i]
+    64 00000047 7414                            JE      le_vazio                    ; fila vazia
+    65 00000049 43                              INC     BX
+    66 0000004A 81E30F00                        AND     BX, MASCARA_BUFFER
+    67 0000004E 891E[1600]                      MOV     [p_t], BX
+    68 00000052 8A87[0400]                      MOV     AL, [buffer+BX]
+    69 00000056 A880                            TEST    AL, 80h
+    70 00000058 75E5                            JNZ     le_prox                     ; BREAK: ignora e tenta o proximo
+    71 0000005A F8                              CLC
+    72 0000005B 5B                              POP     BX
+    73 0000005C C3                              RET
+    74                                  le_vazio:
+    75 0000005D F9                              STC
+    76 0000005E 5B                              POP     BX
+    77 0000005F C3                              RET
+    78                                  
+    79                                  ; espera_evento
+    80                                  ; Saida: AL = scan code MAKE. Enquanto a fila estiver vazia o processador
+    81                                  espera_evento:
+    82 00000060 E8DBFF                          CALL    le_evento
+    83 00000063 7304                            JNC     ee_fim
+    84 00000065 F4                              HLT
+    85 00000066 E9F7FF                          JMP     espera_evento
+    86                                  ee_fim:
+    87 00000069 C3                              RET
+    88                                  
+    89                                  ; limpa_eventos: descarta os codigos pendentes (usado ao trocar de tela).
+    90                                  limpa_eventos:
+    91 0000006A 50                              PUSH    AX
+    92 0000006B FA                              CLI
+    93 0000006C A1[1400]                        MOV     AX, [p_i]
+    94 0000006F A3[1600]                        MOV     [p_t], AX
+    95 00000072 FB                              STI
+    96 00000073 58                              POP     AX
+    97 00000074 C3                              RET
+    98                                  
+    99                                  ; keyINT  -  ISR do teclado (INT 9h)
+   100                                  keyINT:
+   101 00000075 50                              PUSH    AX
+   102 00000076 53                              PUSH    BX
+   103 00000077 1E                              PUSH    DS
+   104 00000078 B8[0000]                        MOV     AX, data                    ; garante DS correto dentro da ISR
+   105 0000007B 8ED8                            MOV     DS, AX
+   106                                  
+   107 0000007D E460                            IN      AL, KB_DATA                 ; le o codigo make/break (porta 60h)
+   108 0000007F 3CE0                            CMP     AL, 0E0h                    ; prefixo de tecla estendida
+   109 00000081 7432                            JE      ki_ack
+   110 00000083 3CE1                            CMP     AL, 0E1h                    ; prefixo da tecla Pause
+   111 00000085 742E                            JE      ki_ack
+   112                                  
+   113                                          ; grava na fila circular
+   114 00000087 8B1E[1400]                      MOV     BX, [p_i]
+   115 0000008B 43                              INC     BX
+   116 0000008C 81E30F00                        AND     BX, MASCARA_BUFFER
+   117 00000090 3B1E[1600]                      CMP     BX, [p_t]           
+   118 00000094 7408                            JE      ki_estado                  
+   119 00000096 891E[1400]                      MOV     [p_i], BX
+   120 0000009A 8887[0400]                      MOV     [buffer+BX], AL
+   121                                  
+   122                                  ki_estado:
+   123                                          ; atualiza a tabela de estado (movimento)
+   124 0000009E 88C3                            MOV     BL, AL
+   125 000000A0 81E37F00                        AND     BX, 007Fh                   ; BX = codigo sem o bit 7 (e BH = 0)
+   126 000000A4 A880                            TEST    AL, 80h                     ; bit 7 = 1 -> break (soltou)
+   127 000000A6 7508                            JNZ     ki_solta
+   128 000000A8 C687[1800]01                    MOV     byte [teclas+BX], 1
+   129 000000AD E90500                          JMP     ki_ack
+   130                                  ki_solta:
+   131 000000B0 C687[1800]00                    MOV     byte [teclas+BX], 0
+   132                                  
+   133                                  ki_ack:
+   134 000000B5 E461                            IN      AL, KB_CTL                  ; reconhece o dado (pulso no bit 7
+   135 000000B7 0C80                            OR      AL, 80h                     ;  da porta 61h, como no Tecbuf)
+   136 000000B9 E661                            OUT     KB_CTL, AL
+   137 000000BB 247F                            AND     AL, 7Fh
+   138 000000BD E661                            OUT     KB_CTL, AL
+   139 000000BF B020                            MOV     AL, EOI                     ; fim de interrupcao para o PIC
+   140 000000C1 E620                            OUT     PICTRL, AL
+   141                                  
+   142 000000C3 1F                              POP     DS
+   143 000000C4 5B                              POP     BX
+   144 000000C5 58                              POP     AX
+   145 000000C6 CF                              IRET
+   146                                  
+   147                                  ; =============================================================================
+   148                                  segment data public class=DATA
+   149                                  
+   150 00000000 0000                    cs_tec          DW      0                   ; CS original da INT 9h
+   151 00000002 0000                    offset_tec      DW      0                   ; IP original da INT 9h
+   152 00000004 00<rept>                buffer          TIMES TAM_BUFFER DB 0       ; fila circular de scan codes
+   153 00000014 0000                    p_i             DW      0                   ; indice de escrita (ISR)
+   154 00000016 0000                    p_t             DW      0                   ; indice de leitura (programa)
+   155 00000018 00<rept>                teclas          TIMES 128 DB 0              ; tabela de estado: 1 = pressionada

@@ -1,129 +1,94 @@
-     1                                  ; =============================================================================
-     2                                  ; tempo.asm  -  Temporizacao pela interrupcao de hardware INT 8h (8253, IRQ0)
-     3                                  ; -----------------------------------------------------------------------------
-     4                                  ; O 8253 do PC gera 18,2065 interrupcoes por segundo (1.193.182 Hz / 65.536).
-     5                                  ; A ISR ClockINT:
-     6                                  ;   - incrementa tique_jogo a cada interrupcao (~55 ms): e o "frame" do jogo,
-     7                                  ;     que dita o ritmo do laco principal (nada de atraso por laco de software);
-     8                                  ;   - conta os segundos do round SOMENTE enquanto relogio_ativo = 1. Assim a
-     9                                  ;     pausa (P), o menu de saida (Q), as telas de selecao/Game Over e os
-    10                                  ;     avisos entre rounds nao consomem o tempo do round;
-    11                                  ;   - encadeia a ISR original do BIOS, que mantem a hora do sistema e envia o
-    12                                  ;     EOI ao PIC.
-    13                                  ;
-    14                                  ; Precisao: em vez de considerar 18 tiques = 1 s (o que faz os "180 s" do
-    15                                  ; round durarem ~178 s), usa-se um acumulador fracionario: a cada tique soma
-    16                                  ; 5 e, quando o acumulador atinge 91, passa-se 1 segundo. Isso equivale a
-    17                                  ; 18,2 tiques por segundo (erro inferior a 0,04%).
-    18                                  ;
-    19                                  ; Rotinas publicas:
-    20                                  ;   instala_relogio, restaura_relogio, zera_cronometro
-    21                                  ; Variaveis publicas:
-    22                                  ;   tique_jogo (DW), segundos (DW), relogio_ativo (DB)
-    23                                  ; =============================================================================
-    24                                  
-    25                                  ; ------------------------------- Constantes (EQU) -----------------------------
-    26                                  ; Constantes usadas por este modulo. Um EQU nao ocupa memoria: o montador
-    27                                  ; troca o nome pelo valor. As que aparecem em mais de um modulo (estrutura do
-    28                                  ; jogador, cores, scan codes, regras) precisam ter o MESMO valor em todos.
-    29                                  
-    30                                  ; ------------------------------- Hardware -------------------------------------
-    31                                  INT_CLK         EQU     08h         ; interrupcao de hardware do 8253 (IRQ0)
-    32                                  
-    33                                  global  instala_relogio
-    34                                  global  restaura_relogio
-    35                                  global  zera_cronometro
-    36                                  global  tique_jogo
-    37                                  global  segundos
-    38                                  global  relogio_ativo
-    39                                  
-    40                                  FRAC_POR_TIQUE  EQU     5           ; 5/91 s p/tick = 1/18,2 s
-    41                                  FRAC_POR_SEG    EQU     91
-    42                                  
-    43                                  segment code public class=CODE
-    44                                  
-    45                                  ; -----------------------------------------------------------------------------
-    46                                  ; instala_relogio: salva o vetor da INT 8h e instala ClockINT.
-    47                                  ; -----------------------------------------------------------------------------
-    48                                  instala_relogio:
-    49 00000000 50                              PUSH    AX
-    50 00000001 06                              PUSH    ES
-    51 00000002 FA                              CLI
-    52 00000003 31C0                            XOR     AX, AX
-    53 00000005 8EC0                            MOV     ES, AX
-    54 00000007 26A12000                        MOV     AX, [ES:INT_CLK*4]          ; IP original
-    55 0000000B A3[0000]                        MOV     [offset_clk], AX
-    56 0000000E 26A12200                        MOV     AX, [ES:INT_CLK*4+2]        ; CS original
-    57 00000012 A3[0200]                        MOV     [cs_clk], AX
-    58 00000015 268C0E2200                      MOV     [ES:INT_CLK*4+2], CS
-    59 0000001A 26C7062000[4C00]                MOV     WORD [ES:INT_CLK*4], ClockINT
-    60 00000021 FB                              STI
-    61 00000022 07                              POP     ES
-    62 00000023 58                              POP     AX
-    63 00000024 C3                              RET
-    64                                  
-    65                                  ; -----------------------------------------------------------------------------
-    66                                  ; restaura_relogio: devolve o vetor original da INT 8h.
-    67                                  ; -----------------------------------------------------------------------------
-    68                                  restaura_relogio:
-    69 00000025 50                              PUSH    AX
-    70 00000026 06                              PUSH    ES
-    71 00000027 FA                              CLI
-    72 00000028 31C0                            XOR     AX, AX
-    73 0000002A 8EC0                            MOV     ES, AX
-    74 0000002C A1[0200]                        MOV     AX, [cs_clk]
-    75 0000002F 26A32200                        MOV     [ES:INT_CLK*4+2], AX
-    76 00000033 A1[0000]                        MOV     AX, [offset_clk]
-    77 00000036 26A32000                        MOV     [ES:INT_CLK*4], AX
-    78 0000003A FB                              STI
-    79 0000003B 07                              POP     ES
-    80 0000003C 58                              POP     AX
-    81 0000003D C3                              RET
-    82                                  
-    83                                  ; -----------------------------------------------------------------------------
-    84                                  ; zera_cronometro: zera os segundos do round (inicio de cada round).
-    85                                  ; Feito com interrupcoes desabilitadas para nao competir com a ISR.
-    86                                  ; -----------------------------------------------------------------------------
-    87                                  zera_cronometro:
-    88 0000003E FA                              CLI
-    89 0000003F C706[0600]0000                  MOV     WORD [segundos], 0
-    90 00000045 C606[0800]00                    MOV     byte [fracao], 0
-    91 0000004A FB                              STI
-    92 0000004B C3                              RET
-    93                                  
-    94                                  ; =============================================================================
-    95                                  ; ClockINT  -  ISR do relogio (INT 8h)
-    96                                  ; =============================================================================
-    97                                  ClockINT:
-    98 0000004C 50                              PUSH    AX
-    99 0000004D 1E                              PUSH    DS
-   100 0000004E B8[0000]                        MOV     AX, data
-   101 00000051 8ED8                            MOV     DS, AX
-   102                                  
-   103 00000053 FF06[0400]                      INC     WORD [tique_jogo]           ; um "frame" do jogo
-   104                                  
-   105 00000057 803E[0900]00                    CMP     byte [relogio_ativo], 0     ; cronometro congelado?
-   106 0000005C 7415                            JE      ck_chain
-   107 0000005E 8006[0800]05                    ADD     byte [fracao], FRAC_POR_TIQUE
-   108 00000063 803E[0800]5B                    CMP     byte [fracao], FRAC_POR_SEG
-   109 00000068 7209                            JB      ck_chain
-   110 0000006A 802E[0800]5B                    SUB     byte [fracao], FRAC_POR_SEG
-   111 0000006F FF06[0600]                      INC     WORD [segundos]             ; passou 1 segundo de round
-   112                                  
-   113                                  ck_chain:
-   114 00000073 9C                              PUSHF                               ; simula um INT para a ISR original
-   115 00000074 FF1E[0000]                      CALL    FAR [offset_clk]            ; (ela faz o EOI e termina em IRET)
-   116                                  
-   117 00000078 1F                              POP     DS
-   118 00000079 58                              POP     AX
-   119 0000007A CF                              IRET
-   120                                  
-   121                                  ; =============================================================================
-   122                                  segment data public class=DATA
-   123                                  
-   124 00000000 0000                    offset_clk      DW      0           ; IP original da INT 8h (offset ANTES do
-   125 00000002 0000                    cs_clk          DW      0           ; CS original da INT 8h  segmento: far ptr)
-   126 00000004 0000                    tique_jogo      DW      0           ; incrementado a cada tique (~55 ms)
-   127 00000006 0000                    segundos        DW      0           ; segundos de round decorridos
-   128 00000008 00                      fracao          DB      0           ; acumulador fracionario (0..90)
-   129 00000009 00                      relogio_ativo   DB      0           ; 1 = round em andamento (conta segundos)
+     1                                  ; tempo.asm  -  Temporizacao pela interrupcao de hardware INT 8h (8253, IRQ0)
+     2                                  
+     3                                  ; Hardware
+     4                                  INT_CLK         EQU     08h         
+     5                                  
+     6                                  global  instala_relogio
+     7                                  global  restaura_relogio
+     8                                  global  zera_cronometro
+     9                                  global  tique_jogo
+    10                                  global  segundos
+    11                                  global  relogio_ativo
+    12                                  
+    13                                  FRAC_POR_TIQUE  EQU     5           
+    14                                  FRAC_POR_SEG    EQU     91
+    15                                  
+    16                                  segment code public class=CODE
+    17                                  
+    18                                  ; instala_relogio: salva o vetor da INT 8h e instala ClockINT.
+    19                                  instala_relogio:
+    20 00000000 50                              PUSH    AX
+    21 00000001 06                              PUSH    ES
+    22 00000002 FA                              CLI
+    23 00000003 31C0                            XOR     AX, AX
+    24 00000005 8EC0                            MOV     ES, AX
+    25 00000007 26A12000                        MOV     AX, [ES:INT_CLK*4]          ; IP original
+    26 0000000B A3[0000]                        MOV     [offset_clk], AX
+    27 0000000E 26A12200                        MOV     AX, [ES:INT_CLK*4+2]        ; CS original
+    28 00000012 A3[0200]                        MOV     [cs_clk], AX
+    29 00000015 268C0E2200                      MOV     [ES:INT_CLK*4+2], CS
+    30 0000001A 26C7062000[4C00]                MOV     WORD [ES:INT_CLK*4], ClockINT
+    31 00000021 FB                              STI
+    32 00000022 07                              POP     ES
+    33 00000023 58                              POP     AX
+    34 00000024 C3                              RET
+    35                                  
+    36                                  ; restaura_relogio: devolve o vetor original da INT 8h.
+    37                                  restaura_relogio:
+    38 00000025 50                              PUSH    AX
+    39 00000026 06                              PUSH    ES
+    40 00000027 FA                              CLI
+    41 00000028 31C0                            XOR     AX, AX
+    42 0000002A 8EC0                            MOV     ES, AX
+    43 0000002C A1[0200]                        MOV     AX, [cs_clk]
+    44 0000002F 26A32200                        MOV     [ES:INT_CLK*4+2], AX
+    45 00000033 A1[0000]                        MOV     AX, [offset_clk]
+    46 00000036 26A32000                        MOV     [ES:INT_CLK*4], AX
+    47 0000003A FB                              STI
+    48 0000003B 07                              POP     ES
+    49 0000003C 58                              POP     AX
+    50 0000003D C3                              RET
+    51                                  
+    52                                  ; zera_cronometro: zera os segundos do round (inicio de cada round).
+    53                                  ; Feito com interrupcoes desabilitadas para nao competir com a ISR.
+    54                                  zera_cronometro:
+    55 0000003E FA                              CLI
+    56 0000003F C706[0600]0000                  MOV     WORD [segundos], 0
+    57 00000045 C606[0800]00                    MOV     byte [fracao], 0
+    58 0000004A FB                              STI
+    59 0000004B C3                              RET
+    60                                  
+    61                                  ; ClockINT  -  ISR do relogio (INT 8h)
+    62                                  ClockINT:
+    63 0000004C 50                              PUSH    AX
+    64 0000004D 1E                              PUSH    DS
+    65 0000004E B8[0000]                        MOV     AX, data
+    66 00000051 8ED8                            MOV     DS, AX
+    67                                  
+    68 00000053 FF06[0400]                      INC     WORD [tique_jogo]           ; um "frame" do jogo
+    69                                  
+    70 00000057 803E[0900]00                    CMP     byte [relogio_ativo], 0     
+    71 0000005C 7415                            JE      ck_chain
+    72 0000005E 8006[0800]05                    ADD     byte [fracao], FRAC_POR_TIQUE
+    73 00000063 803E[0800]5B                    CMP     byte [fracao], FRAC_POR_SEG
+    74 00000068 7209                            JB      ck_chain
+    75 0000006A 802E[0800]5B                    SUB     byte [fracao], FRAC_POR_SEG
+    76 0000006F FF06[0600]                      INC     WORD [segundos]             
+    77                                  
+    78                                  ck_chain:
+    79 00000073 9C                              PUSHF                              
+    80 00000074 FF1E[0000]                      CALL    FAR [offset_clk]          
+    81                                  
+    82 00000078 1F                              POP     DS
+    83 00000079 58                              POP     AX
+    84 0000007A CF                              IRET
+    85                                  
+    86                                  ; =============================================================================
+    87                                  segment data public class=DATA
+    88                                  
+    89 00000000 0000                    offset_clk      DW      0           ; IP original da INT 8h (offset ANTES do
+    90 00000002 0000                    cs_clk          DW      0           ; CS original da INT 8h  segmento: far ptr)
+    91 00000004 0000                    tique_jogo      DW      0           ; incrementado a cada tique (~55 ms)
+    92 00000006 0000                    segundos        DW      0           ; segundos de round decorridos
+    93 00000008 00                      fracao          DB      0           ; acumulador fracionario (0..90)
+    94 00000009 00                      relogio_ativo   DB      0           ; 1 = round em andamento (conta segundos)

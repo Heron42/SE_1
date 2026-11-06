@@ -19,6 +19,10 @@ BARRA_P1_X      EQU     20          ; J1
 BARRA_P2_X      EQU     420         ; J2
 LARG_BLOCO      EQU     20          ; 1 ponto de energia = 20 px de barra
 
+MARCA_MEIO      EQU     6           ; meio lado do quadrado de round (13 px)
+MARCA_Y_BAIXO   EQU     444         ; Y da base do quadrado (centro em 450)
+MARCA_Y_TOPO    EQU     456         ; Y do topo do quadrado
+
 TEMPO_ROUND     EQU     180         ; 3 minutos, em segundos
 
 ; Estrutura dos jogadores
@@ -33,8 +37,6 @@ global  msg_centro
 global  apaga_linha
 
 extern  line                        ; graficos.asm
-extern  circle
-extern  full_circle
 extern  cursor
 extern  caracter
 extern  escreve_texto
@@ -228,24 +230,65 @@ desenha_rounds:
         RET
 
 ; Entrada: AL = rounds vencidos, CL = numero do marcador, BX = X do centro.
-; Desenha circulo cheio se AL >= CL, ou vazio caso contrario.
+; Desenha um quadrado de 13 x 13 px centrado em (BX, 450):
+;   cheio (round vencido)        se AL >= CL
+;   so o contorno (nao vencido)  caso contrario
 marcador:
         PUSH    AX
         PUSH    DX
+        PUSH    SI
         MOV     byte [cor], amarelo
-        MOV     DL, AL                      ; rounds vencidos
-        PUSH    BX                          ; xc
-        MOV     AX, 450
-        PUSH    AX                          ; yc
-        MOV     AX, 6
-        PUSH    AX                          ; r
-        CMP     DL, CL
+        MOV     SI, BX
+        SUB     SI, MARCA_MEIO              ; SI = X da borda esquerda
+        MOV     DX, BX
+        ADD     DX, MARCA_MEIO              ; DX = X da borda direita
+        CMP     AL, CL
         JAE     mc_cheio
-        CALL    circle
+
+        ; ---- contorno: os 4 lados do quadrado
+        MOV     AX, MARCA_Y_TOPO            ; lado de cima
+        PUSH    SI
+        PUSH    AX
+        PUSH    DX
+        PUSH    AX
+        CALL    line
+        MOV     AX, MARCA_Y_BAIXO           ; lado de baixo
+        PUSH    SI
+        PUSH    AX
+        PUSH    DX
+        PUSH    AX
+        CALL    line
+        PUSH    SI                          ; lado esquerdo
+        MOV     AX, MARCA_Y_BAIXO
+        PUSH    AX
+        PUSH    SI
+        MOV     AX, MARCA_Y_TOPO
+        PUSH    AX
+        CALL    line
+        PUSH    DX                          ; lado direito
+        MOV     AX, MARCA_Y_BAIXO
+        PUSH    AX
+        PUSH    DX
+        MOV     AX, MARCA_Y_TOPO
+        PUSH    AX
+        CALL    line
         JMP     mc_fim
+
+        ; ---- cheio: uma linha vertical para cada coluna X
 mc_cheio:
-        CALL    full_circle
+        PUSH    SI                          ; x1
+        MOV     AX, MARCA_Y_BAIXO
+        PUSH    AX                          ; y1
+        PUSH    SI                          ; x2
+        MOV     AX, MARCA_Y_TOPO
+        PUSH    AX                          ; y2
+        CALL    line
+        INC     SI
+        CMP     SI, DX
+        JLE     mc_cheio
+
 mc_fim:
+        POP     SI
         POP     DX
         POP     AX
         RET

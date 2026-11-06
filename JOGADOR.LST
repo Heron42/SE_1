@@ -1,599 +1,504 @@
-     1                                  ; =============================================================================
-     2                                  ; jogador.asm  -  Lutadores: controles, movimento, pulo, animacao e desenho
-     3                                  ; -----------------------------------------------------------------------------
-     4                                  ; Controles (lidos da tabela de estado mantida pela ISR do teclado):
-     5                                  ;   Acao       Jogador 1   Jogador 2
-     6                                  ;   Esquerda       A           <-
-     7                                  ;   Direita        D           ->
-     8                                  ;   Pular          W           seta cima
-     9                                  ;   Abaixar        S           seta baixo
-    10                                  ;   Chute          R           N
-    11                                  ;   Soco           T           M
-    12                                  ;
-    13                                  ; Mecanica de orientacao:
-    14                                  ;   - Os lutadores estao SEMPRE virados um para o outro (atualiza_direcao).
-    15                                  ;   - No chao, um nao atravessa o outro (DIST_MIN).
-    16                                  ;   - Pulando, o lutador pode passar por cima do adversario e trocar de lado;
-    17                                  ;     ao pousar sobreposto, ele e empurrado para o lado em que caiu.
-    18                                  ;
-    19                                  ; Rotinas publicas:
-    20                                  ;   reseta_lutadores, le_controles, fisica_jogador, atualiza_direcao,
-    21                                  ;   atualiza_animacao, houve_mudanca, pinta_jogador, apaga_jogador
-    22                                  ; Dados publicos:
-    23                                  ;   jogador1, jogador2 (estrutura de 20 bytes; campos JX ... JPULO abaixo)
-    24                                  ; =============================================================================
+     1                                  ; jogador.asm - Lutadores: controles, movimento, pulo, animacao e desenho
+     2                                  
+     3                                  
+     4                                  ; Scan codes
+     5                                  TEC_W           EQU     11h
+     6                                  TEC_R           EQU     13h
+     7                                  TEC_T           EQU     14h
+     8                                  TEC_A           EQU     1Eh
+     9                                  TEC_S           EQU     1Fh
+    10                                  TEC_D           EQU     20h
+    11                                  TEC_N           EQU     31h
+    12                                  TEC_M           EQU     32h
+    13                                  TEC_CIMA        EQU     48h        
+    14                                  TEC_ESQ         EQU     4Bh         
+    15                                  TEC_DIR         EQU     4Dh        
+    16                                  TEC_BAIXO       EQU     50h        
+    17                                  
+    18                                  ; Cores
+    19                                                                      ; I R G B
+    20                                  preto           EQU     0           ; 0 0 0 0
+    21                                  vermelho        EQU     4           ; 0 1 0 0
+    22                                  azul_claro      EQU     9           ; 1 0 0 1
+    23                                  
+    24                                  ENERGIA_INICIAL EQU     10 
     25                                  
-    26                                  ; ------------------------------- Constantes (EQU) -----------------------------
-    27                                  ; Constantes usadas por este modulo. Um EQU nao ocupa memoria: o montador
-    28                                  ; troca o nome pelo valor. As que aparecem em mais de um modulo (estrutura do
-    29                                  ; jogador, cores, scan codes, regras) precisam ter o MESMO valor em todos.
-    30                                  
-    31                                  ; ------------------------------- Scan codes (make) ----------------------------
-    32                                  TEC_W           EQU     11h
-    33                                  TEC_R           EQU     13h
-    34                                  TEC_T           EQU     14h
-    35                                  TEC_A           EQU     1Eh
-    36                                  TEC_S           EQU     1Fh
-    37                                  TEC_D           EQU     20h
-    38                                  TEC_N           EQU     31h
-    39                                  TEC_M           EQU     32h
-    40                                  TEC_CIMA        EQU     48h         ; seta para cima   (chega apos o prefixo E0h)
-    41                                  TEC_ESQ         EQU     4Bh         ; seta esquerda    (apos E0h)
-    42                                  TEC_DIR         EQU     4Dh         ; seta direita     (apos E0h)
-    43                                  TEC_BAIXO       EQU     50h         ; seta para baixo  (apos E0h)
-    44                                  
-    45                                  ; ------------------------------- Cores (paleta padrao VGA) --------------------
-    46                                                                      ; I R G B
-    47                                  preto           EQU     0           ; 0 0 0 0
-    48                                  vermelho        EQU     4           ; 0 1 0 0
-    49                                  azul_claro      EQU     9           ; 1 0 0 1
-    50                                  
-    51                                  ; ------------------------------- Regras do jogo -------------------------------
-    52                                  ENERGIA_INICIAL EQU     10          ; golpes validos para perder o round
-    53                                  
-    54                                  ; ------------------------------- Fisica dos lutadores -------------------------
-    55                                  VELOCIDADE      EQU     4           ; pixels por tique (~73 px/s)
-    56                                  LIM_ESQ         EQU     40          ; menor X permitido para o centro do boneco
-    57                                  LIM_DIR         EQU     598         ; maior X permitido (braco vai ate +27)
-    58                                  DIST_MIN        EQU     50          ; distancia minima entre os dois lutadores
-    59                                  Y_CHAO          EQU     156         ; Y dos ombros com o lutador no chao
-    60                                  VEL_PULO        EQU     22          ; velocidade vertical inicial do pulo (px/tique)
-    61                                  GRAVIDADE       EQU     3           ; reducao de VY a cada tique
-    62                                  X_INICIAL_J1    EQU     150
-    63                                  X_INICIAL_J2    EQU     490
-    64                                  
-    65                                  ; ------------------------------- Estados de animacao --------------------------
-    66                                  EST_IDLE        EQU     0
-    67                                  EST_ANDA        EQU     1
-    68                                  EST_SOCO        EQU     2
-    69                                  EST_CHUTE       EQU     3
-    70                                  EST_ABAIXA      EQU     4
-    71                                  
-    72                                  ; ------------------------------- Estrutura de um jogador (20 bytes) -----------
-    73                                  ; Acesse sempre como [SI+campo] ou [jogadorN+campo].
-    74                                  JX              EQU     0           ; dw  posicao X atual (centro do tronco)
-    75                                  JY              EQU     2           ; dw  posicao Y atual (ombros)
-    76                                  JXANT           EQU     4           ; dw  X onde foi desenhado por ultimo
-    77                                  JYANT           EQU     6           ; dw  Y onde foi desenhado por ultimo
-    78                                  JFRAME          EQU     8           ; db  frame atual da animacao
-    79                                  JFRAMEANT       EQU     9           ; db  frame desenhado por ultimo
-    80                                  JDIR            EQU     10          ; db  0 = olha p/ direita, 1 = p/ esquerda
-    81                                  JDIRANT         EQU     11          ; db  direcao desenhada por ultimo
-    82                                  JCOR            EQU     12          ; db  cor do lutador (escolhida na selecao)
-    83                                  JENERGIA        EQU     13          ; db  energia (comeca em ENERGIA_INICIAL)
-    84                                  JESTADO         EQU     14          ; db  estado de animacao (EST_*)
-    85                                  JESTADOANT      EQU     15          ; db  estado desenhado por ultimo
-    86                                  JVY             EQU     16          ; dw  velocidade vertical (positiva = sobe)
-    87                                  JPULO           EQU     18          ; db  1 = no ar, 0 = no chao
-    88                                  
-    89                                  global  jogador1
-    90                                  global  jogador2
-    91                                  global  reseta_lutadores
-    92                                  global  le_controles
-    93                                  global  fisica_jogador
-    94                                  global  atualiza_direcao
-    95                                  global  atualiza_animacao
-    96                                  global  houve_mudanca
-    97                                  global  pinta_jogador
-    98                                  global  apaga_jogador
-    99                                  
-   100                                  extern  teclas                      ; teclado.asm
-   101                                  extern  desenha_jogador             ; graficos.asm
-   102                                  
-   103                                  segment code public class=CODE
-   104                                  
-   105                                  ; =============================================================================
-   106                                  ; reseta_lutadores
-   107                                  ; Coloca os dois lutadores na posicao inicial, com energia cheia, parados.
-   108                                  ; A cor (JCOR) NAO e alterada: e a escolhida na tela de selecao.
-   109                                  ; =============================================================================
-   110                                  reseta_lutadores:
-   111 00000000 56                              PUSH    SI
-   112 00000001 50                              PUSH    AX
-   113 00000002 BE[0B00]                        MOV     SI, jogador1
-   114 00000005 B89600                          MOV     AX, X_INICIAL_J1
-   115 00000008 C6440A00                        MOV     byte [SI+JDIR], 0           ; J1 olha para a direita
-   116 0000000C E81000                          CALL    reseta_um
-   117 0000000F BE[1F00]                        MOV     SI, jogador2
-   118 00000012 B8EA01                          MOV     AX, X_INICIAL_J2
-   119 00000015 C6440A01                        MOV     byte [SI+JDIR], 1           ; J2 olha para a esquerda
-   120 00000019 E80300                          CALL    reseta_um
-   121 0000001C 58                              POP     AX
-   122 0000001D 5E                              POP     SI
-   123 0000001E C3                              RET
-   124                                  
-   125                                  ; Entrada: SI = jogador, AX = X inicial, [SI+JDIR] ja definido.
-   126                                  reseta_um:
-   127 0000001F 8904                            MOV     [SI+JX], AX
-   128 00000021 894404                          MOV     [SI+JXANT], AX
-   129 00000024 C744029C00                      MOV     WORD [SI+JY], Y_CHAO
-   130 00000029 C744069C00                      MOV     WORD [SI+JYANT], Y_CHAO
-   131 0000002E C6440800                        MOV     byte [SI+JFRAME], 0
-   132 00000032 C6440900                        MOV     byte [SI+JFRAMEANT], 0
-   133 00000036 8A440A                          MOV     AL, [SI+JDIR]
-   134 00000039 88440B                          MOV     [SI+JDIRANT], AL
-   135 0000003C C6440D0A                        MOV     byte [SI+JENERGIA], ENERGIA_INICIAL
-   136 00000040 C6440E00                        MOV     byte [SI+JESTADO], EST_IDLE
-   137 00000044 C6440F00                        MOV     byte [SI+JESTADOANT], EST_IDLE
-   138 00000048 C744100000                      MOV     WORD [SI+JVY], 0
-   139 0000004D C6441200                        MOV     byte [SI+JPULO], 0
-   140 00000051 C3                              RET
-   141                                  
-   142                                  ; =============================================================================
-   143                                  ; le_controles
-   144                                  ; Le a tabela de estado do teclado e aplica os comandos dos dois jogadores.
-   145                                  ; Como a tabela guarda cada tecla separadamente, os dois jogadores podem
-   146                                  ; segurar suas teclas ao mesmo tempo sem um bloquear o outro.
-   147                                  ; =============================================================================
-   148                                  le_controles:
-   149 00000052 56                              PUSH    SI
-   150 00000053 57                              PUSH    DI
-   151 00000054 BE[0B00]                        MOV     SI, jogador1
-   152 00000057 BF[1F00]                        MOV     DI, jogador2
-   153 0000005A C606[0000]11                    MOV     byte [tecla_cima], TEC_W
-   154 0000005F C606[0100]1F                    MOV     byte [tecla_baixo], TEC_S
-   155 00000064 C606[0200]1E                    MOV     byte [tecla_esq], TEC_A
-   156 00000069 C606[0300]20                    MOV     byte [tecla_dir], TEC_D
-   157 0000006E C606[0400]14                    MOV     byte [tecla_soco], TEC_T
-   158 00000073 C606[0500]13                    MOV     byte [tecla_chute], TEC_R
-   159 00000078 E83400                          CALL    controla_jogador
-   160                                  
-   161 0000007B BE[1F00]                        MOV     SI, jogador2
-   162 0000007E BF[0B00]                        MOV     DI, jogador1
-   163 00000081 C606[0000]48                    MOV     byte [tecla_cima], TEC_CIMA
-   164 00000086 C606[0100]50                    MOV     byte [tecla_baixo], TEC_BAIXO
-   165 0000008B C606[0200]4B                    MOV     byte [tecla_esq], TEC_ESQ
-   166 00000090 C606[0300]4D                    MOV     byte [tecla_dir], TEC_DIR
-   167 00000095 C606[0400]32                    MOV     byte [tecla_soco], TEC_M
-   168 0000009A C606[0500]31                    MOV     byte [tecla_chute], TEC_N
-   169 0000009F E80D00                          CALL    controla_jogador
-   170 000000A2 5F                              POP     DI
-   171 000000A3 5E                              POP     SI
-   172 000000A4 C3                              RET
-   173                                  
-   174                                  ; -----------------------------------------------------------------------------
-   175                                  ; tecla_ativa
-   176                                  ; Entrada: BL = scan code. Saida: ZF = 0 se a tecla esta pressionada.
-   177                                  ; -----------------------------------------------------------------------------
-   178                                  tecla_ativa:
-   179 000000A5 53                              PUSH    BX
-   180 000000A6 30FF                            XOR     BH, BH
-   181 000000A8 80BF[0000]00                    CMP     byte [teclas+BX], 0
-   182 000000AD 5B                              POP     BX
-   183 000000AE C3                              RET
-   184                                  
-   185                                  ; -----------------------------------------------------------------------------
-   186                                  ; controla_jogador
-   187                                  ; Entrada: SI = jogador, DI = adversario, tecla_* = mapa de teclas dele.
-   188                                  ; Regras:
-   189                                  ;   - durante um soco ou chute os comandos ficam bloqueados ate o fim do golpe;
-   190                                  ;   - abaixado o lutador nao anda, mas pode atacar;
-   191                                  ;   - se nenhuma tecla for usada, volta ao estado parado (idle);
-   192                                  ;   - segurar a tecla de soco/chute repete o golpe ao fim de cada animacao.
-   193                                  ; Preserva todos os registradores.
-   194                                  ; -----------------------------------------------------------------------------
-   195                                  controla_jogador:
-   196 000000AF 50                              PUSH    AX
-   197 000000B0 53                              PUSH    BX
-   198 000000B1 51                              PUSH    CX
-   199                                  
-   200 000000B2 807C0E02                        CMP     byte [SI+JESTADO], EST_SOCO ; golpe em andamento: bloqueia tudo
-   201 000000B6 7406                            JE      cj_fim_jmp
-   202 000000B8 807C0E03                        CMP     byte [SI+JESTADO], EST_CHUTE
-   203 000000BC 7503                            JNE     cj_livre
-   204                                  cj_fim_jmp:
-   205 000000BE E99100                          JMP     cj_fim
-   206                                  
-   207                                  cj_livre:
-   208 000000C1 30C9                            XOR     CL, CL                      ; CL = teclas usadas neste tique
-   209                                  
-   210                                          ; ---- pular
-   211 000000C3 8A1E[0000]                      MOV     BL, [tecla_cima]
-   212 000000C7 E8DBFF                          CALL    tecla_ativa
-   213 000000CA 7405                            JZ      cj_abaixa
-   214 000000CC FEC1                            INC     CL
-   215 000000CE E8B200                          CALL    inicia_pulo
-   216                                  
-   217                                          ; ---- abaixar (so no chao; abaixado nao anda)
-   218                                  cj_abaixa:
-   219 000000D1 8A1E[0100]                      MOV     BL, [tecla_baixo]
-   220 000000D5 E8CDFF                          CALL    tecla_ativa
-   221 000000D8 7419                            JZ      cj_esq
-   222 000000DA 807C1200                        CMP     byte [SI+JPULO], 0
-   223 000000DE 7513                            JNE     cj_esq
-   224 000000E0 FEC1                            INC     CL
-   225 000000E2 807C0E04                        CMP     byte [SI+JESTADO], EST_ABAIXA
-   226 000000E6 7435                            JE      cj_soco                     ; ja abaixado: mantem o frame atual
-   227 000000E8 C6440E04                        MOV     byte [SI+JESTADO], EST_ABAIXA
-   228 000000EC C6440800                        MOV     byte [SI+JFRAME], 0
-   229 000000F0 E92A00                          JMP     cj_soco
-   230                                  
-   231                                          ; ---- esquerda
-   232                                  cj_esq:
-   233 000000F3 8A1E[0200]                      MOV     BL, [tecla_esq]
-   234 000000F7 E8ABFF                          CALL    tecla_ativa
-   235 000000FA 740C                            JZ      cj_dir
-   236 000000FC FEC1                            INC     CL
-   237 000000FE B8FCFF                          MOV     AX, -VELOCIDADE
-   238 00000101 C6440E01                        MOV     byte [SI+JESTADO], EST_ANDA
-   239 00000105 E84E00                          CALL    mover_jogador
-   240                                  
-   241                                          ; ---- direita
-   242                                  cj_dir:
-   243 00000108 8A1E[0300]                      MOV     BL, [tecla_dir]
-   244 0000010C E896FF                          CALL    tecla_ativa
-   245 0000010F 740C                            JZ      cj_soco
-   246 00000111 FEC1                            INC     CL
-   247 00000113 B80400                          MOV     AX, VELOCIDADE
-   248 00000116 C6440E01                        MOV     byte [SI+JESTADO], EST_ANDA
-   249 0000011A E83900                          CALL    mover_jogador
-   250                                  
-   251                                          ; ---- soco (tem prioridade sobre o chute se os dois forem apertados)
-   252                                  cj_soco:
-   253 0000011D 8A1E[0400]                      MOV     BL, [tecla_soco]
-   254 00000121 E881FF                          CALL    tecla_ativa
-   255 00000124 740B                            JZ      cj_chute
-   256 00000126 C6440E02                        MOV     byte [SI+JESTADO], EST_SOCO
-   257 0000012A C6440800                        MOV     byte [SI+JFRAME], 0
-   258 0000012E E92100                          JMP     cj_fim
-   259                                  
-   260                                          ; ---- chute
-   261                                  cj_chute:
-   262 00000131 8A1E[0500]                      MOV     BL, [tecla_chute]
-   263 00000135 E86DFF                          CALL    tecla_ativa
-   264 00000138 740B                            JZ      cj_idle
-   265 0000013A C6440E03                        MOV     byte [SI+JESTADO], EST_CHUTE
-   266 0000013E C6440800                        MOV     byte [SI+JFRAME], 0
-   267 00000142 E90D00                          JMP     cj_fim
-   268                                  
-   269                                          ; ---- nenhuma tecla de acao: volta a ficar parado
-   270                                  cj_idle:
-   271 00000145 80F900                          CMP     CL, 0
-   272 00000148 7508                            JNE     cj_fim
-   273 0000014A C6440E00                        MOV     byte [SI+JESTADO], EST_IDLE
-   274 0000014E C6440800                        MOV     byte [SI+JFRAME], 0
-   275                                  
-   276                                  cj_fim:
-   277 00000152 59                              POP     CX
-   278 00000153 5B                              POP     BX
-   279 00000154 58                              POP     AX
-   280 00000155 C3                              RET
-   281                                  
-   282                                  ; =============================================================================
-   283                                  ; mover_jogador
-   284                                  ; Entrada: SI = jogador que se move, DI = adversario, AX = deslocamento em X
-   285                                  ; So aplica o movimento se:
-   286                                  ;   - o jogador continuar dentro dos limites da arena, e
-   287                                  ;   - a distancia ate o adversario continuar >= DIST_MIN (nao atravessa).
-   288                                  ; Se QUALQUER um dos dois estiver no ar, a distancia nao e verificada:
-   289                                  ; e assim que um lutador passa por cima do outro e troca de lado.
-   290                                  ; =============================================================================
-   291                                  mover_jogador:
-   292 00000156 50                              PUSH    AX
-   293 00000157 53                              PUSH    BX
-   294 00000158 0304                            ADD     AX, [SI+JX]                 ; AX = nova posicao X
-   295 0000015A 3D2800                          CMP     AX, LIM_ESQ
-   296 0000015D 7C21                            JL      mj_fim                      ; passaria da parede esquerda
-   297 0000015F 3D5602                          CMP     AX, LIM_DIR
-   298 00000162 7F1C                            JG      mj_fim                      ; passaria da parede direita
-   299 00000164 807C1200                        CMP     byte [SI+JPULO], 0          ; quem anda esta no ar?
-   300 00000168 7514                            JNE     mj_aceita
-   301 0000016A 807D1200                        CMP     byte [DI+JPULO], 0          ; o adversario esta no ar?
-   302 0000016E 750E                            JNE     mj_aceita
-   303 00000170 89C3                            MOV     BX, AX
-   304 00000172 2B1D                            SUB     BX, [DI+JX]                 ; BX = nova_x - x_adversario
-   305 00000174 7902                            JNS     mj_abs
-   306 00000176 F7DB                            NEG     BX                          ; BX = |distancia|
-   307                                  mj_abs:
-   308 00000178 81FB3200                        CMP     BX, DIST_MIN
-   309 0000017C 7C02                            JL      mj_fim                      ; encostaria/atravessaria o adversario
-   310                                  mj_aceita:
-   311 0000017E 8904                            MOV     [SI+JX], AX                 ; movimento aceito
-   312                                  mj_fim:
-   313 00000180 5B                              POP     BX
-   314 00000181 58                              POP     AX
-   315 00000182 C3                              RET
-   316                                  
-   317                                  ; =============================================================================
-   318                                  ; inicia_pulo
-   319                                  ; Entrada: SI = jogador. So pula se estiver no chao.
-   320                                  ; =============================================================================
-   321                                  inicia_pulo:
-   322 00000183 807C1200                        CMP     byte [SI+JPULO], 0
-   323 00000187 7509                            JNE     ip_fim                      ; ja esta no ar: ignora
-   324 00000189 C6441201                        MOV     byte [SI+JPULO], 1
-   325 0000018D C744101600                      MOV     WORD [SI+JVY], VEL_PULO     ; velocidade vertical inicial (para cima)
-   326                                  ip_fim:
-   327 00000192 C3                              RET
-   328                                  
-   329                                  ; =============================================================================
-   330                                  ; fisica_jogador
-   331                                  ; Entrada: SI = jogador, DI = adversario. Executada uma vez por tique.
-   332                                  ;   Y  <- Y + VY
-   333                                  ;   VY <- VY - GRAVIDADE
-   334                                  ; Ao tocar o chao (Y <= Y_CHAO): fixa Y no chao, zera VY, encerra o pulo
-   335                                  ; e resolve uma eventual sobreposicao com o adversario.
-   336                                  ; Com VEL_PULO = 22 e GRAVIDADE = 3 o pulo sobe 92 px (22+19+...+1) e dura
-   337                                  ; 16 tiques (~0,9 s); no topo, os pes ficam na altura da cabeca do adversario.
-   338                                  ; =============================================================================
-   339                                  fisica_jogador:
-   340 00000193 50                              PUSH    AX
-   341 00000194 807C1200                        CMP     byte [SI+JPULO], 0
-   342 00000198 7423                            JE      fj_fim                      ; no chao: nada a fazer
-   343 0000019A 8B4410                          MOV     AX, [SI+JVY]
-   344 0000019D 014402                          ADD     [SI+JY], AX                 ; move na vertical
-   345 000001A0 816C100300                      SUB     WORD [SI+JVY], GRAVIDADE    ; gravidade
-   346 000001A5 817C029C00                      CMP     WORD [SI+JY], Y_CHAO
-   347 000001AA 7F11                            JG      fj_fim                      ; ainda no ar
-   348 000001AC C744029C00                      MOV     WORD [SI+JY], Y_CHAO        ; pousou
-   349 000001B1 C744100000                      MOV     WORD [SI+JVY], 0
-   350 000001B6 C6441200                        MOV     byte [SI+JPULO], 0
-   351 000001BA E80200                          CALL    separa_ao_pousar
-   352                                  fj_fim:
-   353 000001BD 58                              POP     AX
-   354 000001BE C3                              RET
-   355                                  
-   356                                  ; =============================================================================
-   357                                  ; separa_ao_pousar
-   358                                  ; Entrada: SI = jogador que acabou de pousar, DI = adversario.
-   359                                  ; Se pousou a menos de DIST_MIN do adversario (que esta no chao), empurra
-   360                                  ; quem pousou para o lado em que caiu. Se a parede impedir, empurra o
-   361                                  ; adversario para o outro lado. Se o adversario ainda estiver no ar, a
-   362                                  ; separacao sera feita quando ELE pousar.
-   363                                  ; =============================================================================
-   364                                  separa_ao_pousar:
-   365 000001BF 50                              PUSH    AX
-   366 000001C0 53                              PUSH    BX
-   367 000001C1 807D1200                        CMP     byte [DI+JPULO], 0
-   368 000001C5 7540                            JNE     sp_fim                      ; adversario no ar: resolve depois
-   369 000001C7 8B04                            MOV     AX, [SI+JX]
-   370 000001C9 2B05                            SUB     AX, [DI+JX]                 ; AX = x_pousou - x_adversario
-   371 000001CB 89C3                            MOV     BX, AX
-   372 000001CD 7902                            JNS     sp_abs
-   373 000001CF F7DB                            NEG     BX
-   374                                  sp_abs:
-   375 000001D1 81FB3200                        CMP     BX, DIST_MIN
-   376 000001D5 7D30                            JGE     sp_fim                      ; ja estao afastados o suficiente
-   377                                  
-   378 000001D7 8B1D                            MOV     BX, [DI+JX]
-   379 000001D9 3D0000                          CMP     AX, 0
-   380 000001DC 7C15                            JL      sp_esquerda
-   381                                          ; ---- caiu a direita (ou exatamente em cima): vai para a direita
-   382 000001DE 81C33200                        ADD     BX, DIST_MIN
-   383 000001E2 81FB5602                        CMP     BX, LIM_DIR
-   384 000001E6 7E1D                            JLE     sp_grava
-   385 000001E8 BB5602                          MOV     BX, LIM_DIR                 ; parede direita: encosta nela...
-   386 000001EB B82402                          MOV     AX, LIM_DIR - DIST_MIN
-   387 000001EE 8905                            MOV     [DI+JX], AX                 ; ...e empurra o adversario
-   388 000001F0 E91200                          JMP     sp_grava
-   389                                  sp_esquerda:
-   390                                          ; ---- caiu a esquerda: vai para a esquerda
-   391 000001F3 81EB3200                        SUB     BX, DIST_MIN
-   392 000001F7 81FB2800                        CMP     BX, LIM_ESQ
-   393 000001FB 7D08                            JGE     sp_grava
-   394 000001FD BB2800                          MOV     BX, LIM_ESQ                 ; parede esquerda: encosta nela...
-   395 00000200 B85A00                          MOV     AX, LIM_ESQ + DIST_MIN
-   396 00000203 8905                            MOV     [DI+JX], AX                 ; ...e empurra o adversario
-   397                                  sp_grava:
-   398 00000205 891C                            MOV     [SI+JX], BX
-   399                                  sp_fim:
-   400 00000207 5B                              POP     BX
-   401 00000208 58                              POP     AX
-   402 00000209 C3                              RET
-   403                                  
-   404                                  ; =============================================================================
-   405                                  ; atualiza_direcao
-   406                                  ; Mantem os lutadores sempre virados um para o outro:
-   407                                  ;   x1 < x2 -> J1 olha para a direita (0) e J2 para a esquerda (1)
-   408                                  ;   x1 > x2 -> J1 olha para a esquerda (1) e J2 para a direita (0)
-   409                                  ;   x1 = x2 -> (um sobre o outro, no pulo) mantem a direcao atual
-   410                                  ; =============================================================================
-   411                                  atualiza_direcao:
-   412 0000020A 50                              PUSH    AX
-   413 0000020B A1[0B00]                        MOV     AX, [jogador1+JX]
-   414 0000020E 3B06[1F00]                      CMP     AX, [jogador2+JX]
-   415 00000212 7419                            JE      ad_fim
-   416 00000214 7F0D                            JG      ad_invertido
-   417 00000216 C606[1500]00                    MOV     byte [jogador1+JDIR], 0
-   418 0000021B C606[2900]01                    MOV     byte [jogador2+JDIR], 1
-   419 00000220 E90A00                          JMP     ad_fim
-   420                                  ad_invertido:
-   421 00000223 C606[1500]01                    MOV     byte [jogador1+JDIR], 1
-   422 00000228 C606[2900]00                    MOV     byte [jogador2+JDIR], 0
-   423                                  ad_fim:
-   424 0000022D 58                              POP     AX
-   425 0000022E C3                              RET
-   426                                  
-   427                                  ; =============================================================================
-   428                                  ; atualiza_animacao
-   429                                  ; Entrada: SI = jogador.
-   430                                  ; Avanca o frame da animacao do estado atual:
-   431                                  ;   - abaixado: trava no ultimo frame enquanto a tecla estiver pressionada;
-   432                                  ;   - soco/chute: ao terminar a animacao, volta ao estado parado;
-   433                                  ;   - demais estados: animacao ciclica.
-   434                                  ; =============================================================================
-   435                                  atualiza_animacao:
-   436 0000022F 50                              PUSH    AX
-   437 00000230 53                              PUSH    BX
-   438                                  
-   439 00000231 8A5C0E                          MOV     BL, [SI+JESTADO]
-   440 00000234 30FF                            XOR     BH, BH
-   441 00000236 8A87[0600]                      MOV     AL, [limite_frames+BX]      ; numero de frames deste estado
-   442                                  
-   443 0000023A FE4408                          INC     byte [SI+JFRAME]
-   444 0000023D 384408                          CMP     [SI+JFRAME], AL
-   445 00000240 7C22                            JL      aa_fim                      ; ainda dentro da animacao
-   446                                  
-   447 00000242 807C0E04                        CMP     byte [SI+JESTADO], EST_ABAIXA
-   448 00000246 7508                            JNE     aa_ciclo
-   449 00000248 FEC8                            DEC     AL                          ; abaixado: trava no ultimo frame
-   450 0000024A 884408                          MOV     [SI+JFRAME], AL
-   451 0000024D E91400                          JMP     aa_fim
-   452                                  
-   453                                  aa_ciclo:
-   454 00000250 C6440800                        MOV     byte [SI+JFRAME], 0         ; recomeca a animacao
-   455 00000254 807C0E02                        CMP     byte [SI+JESTADO], EST_SOCO
-   456 00000258 7406                            JE      aa_reseta_idle
-   457 0000025A 807C0E03                        CMP     byte [SI+JESTADO], EST_CHUTE
-   458 0000025E 7504                            JNE     aa_fim
-   459                                  aa_reseta_idle:
-   460 00000260 C6440E00                        MOV     byte [SI+JESTADO], EST_IDLE ; golpe terminou
-   461                                  
-   462                                  aa_fim:
-   463 00000264 5B                              POP     BX
-   464 00000265 58                              POP     AX
-   465 00000266 C3                              RET
-   466                                  
-   467                                  ; =============================================================================
-   468                                  ; houve_mudanca
-   469                                  ; Saida: AL = 1 se algum jogador mudou de posicao/frame/estado/direcao desde
-   470                                  ;        o ultimo desenho; AL = 0 caso contrario.
-   471                                  ; =============================================================================
-   472                                  houve_mudanca:
-   473 00000267 56                              PUSH    SI
-   474 00000268 BE[0B00]                        MOV     SI, jogador1
-   475 0000026B E80C00                          CALL    jogador_mudou
-   476 0000026E 3C01                            CMP     AL, 1
-   477 00000270 7406                            JE      hm_fim
-   478 00000272 BE[1F00]                        MOV     SI, jogador2
-   479 00000275 E80200                          CALL    jogador_mudou
-   480                                  hm_fim:
-   481 00000278 5E                              POP     SI
-   482 00000279 C3                              RET
-   483                                  
-   484                                  ; Entrada: SI = jogador. Saida: AL = 1 se mudou, 0 se nao.
-   485                                  jogador_mudou:
-   486 0000027A 53                              PUSH    BX
-   487 0000027B B001                            MOV     AL, 1
-   488 0000027D 8B1C                            MOV     BX, [SI+JX]
-   489 0000027F 3B5C04                          CMP     BX, [SI+JXANT]
-   490 00000282 7522                            JNE     jm_fim
-   491 00000284 8B5C02                          MOV     BX, [SI+JY]
-   492 00000287 3B5C06                          CMP     BX, [SI+JYANT]
-   493 0000028A 751A                            JNE     jm_fim
-   494 0000028C 8A5C08                          MOV     BL, [SI+JFRAME]
-   495 0000028F 3A5C09                          CMP     BL, [SI+JFRAMEANT]
-   496 00000292 7512                            JNE     jm_fim
-   497 00000294 8A5C0E                          MOV     BL, [SI+JESTADO]
-   498 00000297 3A5C0F                          CMP     BL, [SI+JESTADOANT]
-   499 0000029A 750A                            JNE     jm_fim
-   500 0000029C 8A5C0A                          MOV     BL, [SI+JDIR]
-   501 0000029F 3A5C0B                          CMP     BL, [SI+JDIRANT]
-   502 000002A2 7502                            JNE     jm_fim
-   503 000002A4 B000                            MOV     AL, 0
-   504                                  jm_fim:
-   505 000002A6 5B                              POP     BX
-   506 000002A7 C3                              RET
-   507                                  
-   508                                  ; =============================================================================
-   509                                  ; pinta_jogador
-   510                                  ; Entrada: SI = jogador. Desenha na posicao ATUAL, com a cor do jogador, e
-   511                                  ; guarda essa posicao/frame/estado/direcao como "anterior" (para apagar depois).
-   512                                  ; =============================================================================
-   513                                  pinta_jogador:
-   514 000002A8 50                              PUSH    AX
-   515 000002A9 53                              PUSH    BX
-   516 000002AA 51                              PUSH    CX
-   517 000002AB 52                              PUSH    DX
-   518 000002AC 8A440C                          MOV     AL, [SI+JCOR]
-   519 000002AF 8A6408                          MOV     AH, [SI+JFRAME]
-   520 000002B2 8A5C0A                          MOV     BL, [SI+JDIR]
-   521 000002B5 8A7C0E                          MOV     BH, [SI+JESTADO]
-   522 000002B8 8B0C                            MOV     CX, [SI+JX]
-   523 000002BA 8B5402                          MOV     DX, [SI+JY]
-   524 000002BD E8(0000)                        CALL    desenha_jogador             ; preserva todos os registradores
-   525 000002C0 894C04                          MOV     [SI+JXANT], CX
-   526 000002C3 895406                          MOV     [SI+JYANT], DX
-   527 000002C6 886409                          MOV     [SI+JFRAMEANT], AH
-   528 000002C9 887C0F                          MOV     [SI+JESTADOANT], BH
-   529 000002CC 885C0B                          MOV     [SI+JDIRANT], BL
-   530 000002CF 5A                              POP     DX
-   531 000002D0 59                              POP     CX
-   532 000002D1 5B                              POP     BX
-   533 000002D2 58                              POP     AX
-   534 000002D3 C3                              RET
-   535                                  
-   536                                  ; =============================================================================
-   537                                  ; apaga_jogador
-   538                                  ; Entrada: SI = jogador. Redesenha em PRETO na posicao ANTERIOR.
-   539                                  ; =============================================================================
-   540                                  apaga_jogador:
-   541 000002D4 50                              PUSH    AX
-   542 000002D5 53                              PUSH    BX
-   543 000002D6 51                              PUSH    CX
-   544 000002D7 52                              PUSH    DX
-   545 000002D8 B000                            MOV     AL, preto
-   546 000002DA 8A6409                          MOV     AH, [SI+JFRAMEANT]
-   547 000002DD 8A5C0B                          MOV     BL, [SI+JDIRANT]
-   548 000002E0 8A7C0F                          MOV     BH, [SI+JESTADOANT]
-   549 000002E3 8B4C04                          MOV     CX, [SI+JXANT]
-   550 000002E6 8B5406                          MOV     DX, [SI+JYANT]
-   551 000002E9 E8(0000)                        CALL    desenha_jogador
-   552 000002EC 5A                              POP     DX
-   553 000002ED 59                              POP     CX
-   554 000002EE 5B                              POP     BX
-   555 000002EF 58                              POP     AX
-   556 000002F0 C3                              RET
-   557                                  
-   558                                  ; =============================================================================
-   559                                  segment data public class=DATA
-   560                                  
-   561                                  ; Mapa de teclas do jogador sendo processado por controla_jogador
-   562 00000000 00                      tecla_cima      DB      0
-   563 00000001 00                      tecla_baixo     DB      0
-   564 00000002 00                      tecla_esq       DB      0
-   565 00000003 00                      tecla_dir       DB      0
-   566 00000004 00                      tecla_soco      DB      0
-   567 00000005 00                      tecla_chute     DB      0
-   568                                  
-   569                                  ; Numero de frames de cada estado: parado, andar, soco, chute, abaixar.
-   570                                  ; O estado parado usa so o frame 0 (v_idle tambem tem um frame 1, nao usado).
-   571 00000006 010A0A0A03              limite_frames   DB      1, 10, 10, 10, 3
-   572                                  
-   573                                  ; ----------------------------------------------------------------------------
-   574                                  ; Lutadores (20 bytes cada; deslocamentos dos campos no inicio do modulo).
-   575                                  ; A cor e sobrescrita pela tela de selecao.
-   576                                  ; ----------------------------------------------------------------------------
-   577                                  jogador1:
-   578 0000000B 96009C00                        DW      X_INICIAL_J1, Y_CHAO    ; JX, JY
-   579 0000000F 96009C00                        DW      X_INICIAL_J1, Y_CHAO    ; JXANT, JYANT
-   580 00000013 0000                            DB      0, 0                    ; JFRAME, JFRAMEANT
-   581 00000015 0000                            DB      0, 0                    ; JDIR, JDIRANT   (olha para a direita)
-   582 00000017 09                              DB      azul_claro              ; JCOR
-   583 00000018 0A                              DB      ENERGIA_INICIAL         ; JENERGIA
-   584 00000019 0000                            DB      EST_IDLE, EST_IDLE      ; JESTADO, JESTADOANT
-   585 0000001B 0000                            DW      0                       ; JVY
-   586 0000001D 00                              DB      0                       ; JPULO
-   587 0000001E 00                              DB      0                       ; reserva
-   588                                  
-   589                                  jogador2:
-   590 0000001F EA019C00                        DW      X_INICIAL_J2, Y_CHAO    ; JX, JY
-   591 00000023 EA019C00                        DW      X_INICIAL_J2, Y_CHAO    ; JXANT, JYANT
-   592 00000027 0000                            DB      0, 0                    ; JFRAME, JFRAMEANT
-   593 00000029 0101                            DB      1, 1                    ; JDIR, JDIRANT   (olha para a esquerda)
-   594 0000002B 04                              DB      vermelho                ; JCOR
-   595 0000002C 0A                              DB      ENERGIA_INICIAL         ; JENERGIA
-   596 0000002D 0000                            DB      EST_IDLE, EST_IDLE      ; JESTADO, JESTADOANT
-   597 0000002F 0000                            DW      0                       ; JVY
-   598 00000031 00                              DB      0                       ; JPULO
-   599 00000032 00                              DB      0                       ; reserva
+    26                                  ; Fisica dos lutadores
+    27                                  VELOCIDADE      EQU     4        
+    28                                  LIM_ESQ         EQU     40          
+    29                                  LIM_DIR         EQU     598        
+    30                                  DIST_MIN        EQU     50          ; distancia minima entre os dois lutadores
+    31                                  Y_CHAO          EQU     156         ; Y dos ombros com o lutador no chao
+    32                                  VEL_PULO        EQU     22          ; velocidade vertical inicial do pulo
+    33                                  GRAVIDADE       EQU     3           ; reducao de VY a cada tique
+    34                                  X_INICIAL_J1    EQU     150
+    35                                  X_INICIAL_J2    EQU     490
+    36                                  
+    37                                  ; Estados de animacao
+    38                                  EST_IDLE        EQU     0
+    39                                  EST_ANDA        EQU     1
+    40                                  EST_SOCO        EQU     2
+    41                                  EST_CHUTE       EQU     3
+    42                                  EST_ABAIXA      EQU     4
+    43                                  
+    44                                  ; Estrutura de um jogador
+    45                                  JX              EQU     0           ; dw  posicao X atual
+    46                                  JY              EQU     2           ; dw  posicao Y atual
+    47                                  JXANT           EQU     4           ; dw  X onde foi desenhado por ultimo
+    48                                  JYANT           EQU     6           ; dw  Y onde foi desenhado por ultimo
+    49                                  JFRAME          EQU     8           ; db  frame atual da animacao
+    50                                  JFRAMEANT       EQU     9           ; db  frame desenhado por ultimo
+    51                                  JDIR            EQU     10          ; db  0 = odireita, 1 = esquerda
+    52                                  JDIRANT         EQU     11          ; db  direcao desenhada por ultimo
+    53                                  JCOR            EQU     12          ; db  cor do lutador =
+    54                                  JENERGIA        EQU     13          ; db  energia=
+    55                                  JESTADO         EQU     14          ; db  estado de animacao=
+    56                                  JESTADOANT      EQU     15          ; db  estado desenhado por ultimo
+    57                                  JVY             EQU     16          ; dw  velocidade vertical
+    58                                  JPULO           EQU     18          ; db  1 = no ar, 0 = no chao
+    59                                  
+    60                                  global  jogador1
+    61                                  global  jogador2
+    62                                  global  reseta_lutadores
+    63                                  global  le_controles
+    64                                  global  fisica_jogador
+    65                                  global  atualiza_direcao
+    66                                  global  atualiza_animacao
+    67                                  global  houve_mudanca
+    68                                  global  pinta_jogador
+    69                                  global  apaga_jogador
+    70                                  
+    71                                  extern  teclas                      ; teclado.asm
+    72                                  extern  desenha_jogador             ; graficos.asm
+    73                                  
+    74                                  segment code public class=CODE
+    75                                  
+    76                                  
+    77                                  ; reseta_lutadores
+    78                                  reseta_lutadores:
+    79 00000000 56                              PUSH    SI
+    80 00000001 50                              PUSH    AX
+    81 00000002 BE[0B00]                        MOV     SI, jogador1
+    82 00000005 B89600                          MOV     AX, X_INICIAL_J1
+    83 00000008 C6440A00                        MOV     byte [SI+JDIR], 0           ; J1 olha para a direita
+    84 0000000C E81000                          CALL    reseta_um
+    85 0000000F BE[1F00]                        MOV     SI, jogador2
+    86 00000012 B8EA01                          MOV     AX, X_INICIAL_J2
+    87 00000015 C6440A01                        MOV     byte [SI+JDIR], 1           ; J2 olha para a esquerda
+    88 00000019 E80300                          CALL    reseta_um
+    89 0000001C 58                              POP     AX
+    90 0000001D 5E                              POP     SI
+    91 0000001E C3                              RET
+    92                                  
+    93                                  ; Entrada: SI = jogador, AX = X inicial, [SI+JDIR] ja definido.
+    94                                  reseta_um:
+    95 0000001F 8904                            MOV     [SI+JX], AX
+    96 00000021 894404                          MOV     [SI+JXANT], AX
+    97 00000024 C744029C00                      MOV     WORD [SI+JY], Y_CHAO
+    98 00000029 C744069C00                      MOV     WORD [SI+JYANT], Y_CHAO
+    99 0000002E C6440800                        MOV     byte [SI+JFRAME], 0
+   100 00000032 C6440900                        MOV     byte [SI+JFRAMEANT], 0
+   101 00000036 8A440A                          MOV     AL, [SI+JDIR]
+   102 00000039 88440B                          MOV     [SI+JDIRANT], AL
+   103 0000003C C6440D0A                        MOV     byte [SI+JENERGIA], ENERGIA_INICIAL
+   104 00000040 C6440E00                        MOV     byte [SI+JESTADO], EST_IDLE
+   105 00000044 C6440F00                        MOV     byte [SI+JESTADOANT], EST_IDLE
+   106 00000048 C744100000                      MOV     WORD [SI+JVY], 0
+   107 0000004D C6441200                        MOV     byte [SI+JPULO], 0
+   108 00000051 C3                              RET
+   109                                  
+   110                                  ; le_controles
+   111                                  le_controles:
+   112 00000052 56                              PUSH    SI
+   113 00000053 57                              PUSH    DI
+   114 00000054 BE[0B00]                        MOV     SI, jogador1
+   115 00000057 BF[1F00]                        MOV     DI, jogador2
+   116 0000005A C606[0000]11                    MOV     byte [tecla_cima], TEC_W
+   117 0000005F C606[0100]1F                    MOV     byte [tecla_baixo], TEC_S
+   118 00000064 C606[0200]1E                    MOV     byte [tecla_esq], TEC_A
+   119 00000069 C606[0300]20                    MOV     byte [tecla_dir], TEC_D
+   120 0000006E C606[0400]14                    MOV     byte [tecla_soco], TEC_T
+   121 00000073 C606[0500]13                    MOV     byte [tecla_chute], TEC_R
+   122 00000078 E83400                          CALL    controla_jogador
+   123                                  
+   124 0000007B BE[1F00]                        MOV     SI, jogador2
+   125 0000007E BF[0B00]                        MOV     DI, jogador1
+   126 00000081 C606[0000]48                    MOV     byte [tecla_cima], TEC_CIMA
+   127 00000086 C606[0100]50                    MOV     byte [tecla_baixo], TEC_BAIXO
+   128 0000008B C606[0200]4B                    MOV     byte [tecla_esq], TEC_ESQ
+   129 00000090 C606[0300]4D                    MOV     byte [tecla_dir], TEC_DIR
+   130 00000095 C606[0400]32                    MOV     byte [tecla_soco], TEC_M
+   131 0000009A C606[0500]31                    MOV     byte [tecla_chute], TEC_N
+   132 0000009F E80D00                          CALL    controla_jogador
+   133 000000A2 5F                              POP     DI
+   134 000000A3 5E                              POP     SI
+   135 000000A4 C3                              RET
+   136                                  
+   137                                  ; tecla_ativa
+   138                                  ; Entrada: BL = scan code. Saida: ZF = 0 se a tecla esta pressionada.
+   139                                  tecla_ativa:
+   140 000000A5 53                              PUSH    BX
+   141 000000A6 30FF                            XOR     BH, BH
+   142 000000A8 80BF[0000]00                    CMP     byte [teclas+BX], 0
+   143 000000AD 5B                              POP     BX
+   144 000000AE C3                              RET
+   145                                  
+   146                                  ; controla_jogador
+   147                                  ; Entrada: SI = jogador, DI = adversario, tecla_* = mapa de teclas dele.
+   148                                  controla_jogador:
+   149 000000AF 50                              PUSH    AX
+   150 000000B0 53                              PUSH    BX
+   151 000000B1 51                              PUSH    CX
+   152                                  
+   153 000000B2 807C0E02                        CMP     byte [SI+JESTADO], EST_SOCO ; golpe em andamento: bloqueia tudo
+   154 000000B6 7406                            JE      cj_fim_jmp
+   155 000000B8 807C0E03                        CMP     byte [SI+JESTADO], EST_CHUTE
+   156 000000BC 7503                            JNE     cj_livre
+   157                                  cj_fim_jmp:
+   158 000000BE E99100                          JMP     cj_fim
+   159                                  
+   160                                  cj_livre:
+   161 000000C1 30C9                            XOR     CL, CL                      ; CL = teclas usadas neste tique
+   162                                  
+   163                                          ; pular
+   164 000000C3 8A1E[0000]                      MOV     BL, [tecla_cima]
+   165 000000C7 E8DBFF                          CALL    tecla_ativa
+   166 000000CA 7405                            JZ      cj_abaixa
+   167 000000CC FEC1                            INC     CL
+   168 000000CE E8B200                          CALL    inicia_pulo
+   169                                  
+   170                                          ; abaixar
+   171                                  cj_abaixa:
+   172 000000D1 8A1E[0100]                      MOV     BL, [tecla_baixo]
+   173 000000D5 E8CDFF                          CALL    tecla_ativa
+   174 000000D8 7419                            JZ      cj_esq
+   175 000000DA 807C1200                        CMP     byte [SI+JPULO], 0
+   176 000000DE 7513                            JNE     cj_esq
+   177 000000E0 FEC1                            INC     CL
+   178 000000E2 807C0E04                        CMP     byte [SI+JESTADO], EST_ABAIXA
+   179 000000E6 7435                            JE      cj_soco                     ; ja abaixado: mantem o frame atual
+   180 000000E8 C6440E04                        MOV     byte [SI+JESTADO], EST_ABAIXA
+   181 000000EC C6440800                        MOV     byte [SI+JFRAME], 0
+   182 000000F0 E92A00                          JMP     cj_soco
+   183                                  
+   184                                          ; esquerda
+   185                                  cj_esq:
+   186 000000F3 8A1E[0200]                      MOV     BL, [tecla_esq]
+   187 000000F7 E8ABFF                          CALL    tecla_ativa
+   188 000000FA 740C                            JZ      cj_dir
+   189 000000FC FEC1                            INC     CL
+   190 000000FE B8FCFF                          MOV     AX, -VELOCIDADE
+   191 00000101 C6440E01                        MOV     byte [SI+JESTADO], EST_ANDA
+   192 00000105 E84E00                          CALL    mover_jogador
+   193                                  
+   194                                          ; direita
+   195                                  cj_dir:
+   196 00000108 8A1E[0300]                      MOV     BL, [tecla_dir]
+   197 0000010C E896FF                          CALL    tecla_ativa
+   198 0000010F 740C                            JZ      cj_soco
+   199 00000111 FEC1                            INC     CL
+   200 00000113 B80400                          MOV     AX, VELOCIDADE
+   201 00000116 C6440E01                        MOV     byte [SI+JESTADO], EST_ANDA
+   202 0000011A E83900                          CALL    mover_jogador
+   203                                  
+   204                                          ; soco 
+   205                                  cj_soco:
+   206 0000011D 8A1E[0400]                      MOV     BL, [tecla_soco]
+   207 00000121 E881FF                          CALL    tecla_ativa
+   208 00000124 740B                            JZ      cj_chute
+   209 00000126 C6440E02                        MOV     byte [SI+JESTADO], EST_SOCO
+   210 0000012A C6440800                        MOV     byte [SI+JFRAME], 0
+   211 0000012E E92100                          JMP     cj_fim
+   212                                  
+   213                                          ; chute
+   214                                  cj_chute:
+   215 00000131 8A1E[0500]                      MOV     BL, [tecla_chute]
+   216 00000135 E86DFF                          CALL    tecla_ativa
+   217 00000138 740B                            JZ      cj_idle
+   218 0000013A C6440E03                        MOV     byte [SI+JESTADO], EST_CHUTE
+   219 0000013E C6440800                        MOV     byte [SI+JFRAME], 0
+   220 00000142 E90D00                          JMP     cj_fim
+   221                                  
+   222                                          ; nenhuma tecla de acao: volta a ficar parado
+   223                                  cj_idle:
+   224 00000145 80F900                          CMP     CL, 0
+   225 00000148 7508                            JNE     cj_fim
+   226 0000014A C6440E00                        MOV     byte [SI+JESTADO], EST_IDLE
+   227 0000014E C6440800                        MOV     byte [SI+JFRAME], 0
+   228                                  
+   229                                  cj_fim:
+   230 00000152 59                              POP     CX
+   231 00000153 5B                              POP     BX
+   232 00000154 58                              POP     AX
+   233 00000155 C3                              RET
+   234                                  
+   235                                  ; mover_jogador
+   236                                  ; Entrada: SI = jogador, DI = adversario, AX = deslocamento em X
+   237                                  mover_jogador:
+   238 00000156 50                              PUSH    AX
+   239 00000157 53                              PUSH    BX
+   240 00000158 0304                            ADD     AX, [SI+JX]                 ; AX = nova posicao X
+   241 0000015A 3D2800                          CMP     AX, LIM_ESQ
+   242 0000015D 7C21                            JL      mj_fim                      ; passaria da parede esquerda
+   243 0000015F 3D5602                          CMP     AX, LIM_DIR
+   244 00000162 7F1C                            JG      mj_fim                      ; passaria da parede direita
+   245 00000164 807C1200                        CMP     byte [SI+JPULO], 0          ; quem anda esta no ar?
+   246 00000168 7514                            JNE     mj_aceita
+   247 0000016A 807D1200                        CMP     byte [DI+JPULO], 0          ; o adversario esta no ar?
+   248 0000016E 750E                            JNE     mj_aceita
+   249 00000170 89C3                            MOV     BX, AX
+   250 00000172 2B1D                            SUB     BX, [DI+JX]                 ; BX = nova_x - x_adversario
+   251 00000174 7902                            JNS     mj_abs
+   252 00000176 F7DB                            NEG     BX                          ; BX = |distancia|
+   253                                  mj_abs:
+   254 00000178 81FB3200                        CMP     BX, DIST_MIN
+   255 0000017C 7C02                            JL      mj_fim                      ; encostaria/atravessaria o adversario
+   256                                  mj_aceita:
+   257 0000017E 8904                            MOV     [SI+JX], AX                 ; movimento aceito
+   258                                  mj_fim:
+   259 00000180 5B                              POP     BX
+   260 00000181 58                              POP     AX
+   261 00000182 C3                              RET
+   262                                  
+   263                                  ; inicia_pulo
+   264                                  ; Entrada: SI = jogador
+   265                                  inicia_pulo:
+   266 00000183 807C1200                        CMP     byte [SI+JPULO], 0
+   267 00000187 7509                            JNE     ip_fim                      ; ja esta no ar: ignora
+   268 00000189 C6441201                        MOV     byte [SI+JPULO], 1
+   269 0000018D C744101600                      MOV     WORD [SI+JVY], VEL_PULO     ; velocidade vertical inicial
+   270                                  ip_fim:
+   271 00000192 C3                              RET
+   272                                  
+   273                                  ; fisica_jogador
+   274                                  ; Entrada: SI = jogador, DI = adversario
+   275                                  fisica_jogador:
+   276 00000193 50                              PUSH    AX
+   277 00000194 807C1200                        CMP     byte [SI+JPULO], 0
+   278 00000198 7423                            JE      fj_fim                      ; no chao: nada a fazer
+   279 0000019A 8B4410                          MOV     AX, [SI+JVY]
+   280 0000019D 014402                          ADD     [SI+JY], AX                 ; move na vertical
+   281 000001A0 816C100300                      SUB     WORD [SI+JVY], GRAVIDADE    ; gravidade
+   282 000001A5 817C029C00                      CMP     WORD [SI+JY], Y_CHAO
+   283 000001AA 7F11                            JG      fj_fim                      ; ainda no ar
+   284 000001AC C744029C00                      MOV     WORD [SI+JY], Y_CHAO        ; pousou
+   285 000001B1 C744100000                      MOV     WORD [SI+JVY], 0
+   286 000001B6 C6441200                        MOV     byte [SI+JPULO], 0
+   287 000001BA E80200                          CALL    separa_ao_pousar
+   288                                  fj_fim:
+   289 000001BD 58                              POP     AX
+   290 000001BE C3                              RET
+   291                                  
+   292                                  ; separa_ao_pousar
+   293                                  ; Entrada: SI = jogador que acabou de pousar, DI = adversario.
+   294                                  separa_ao_pousar:
+   295 000001BF 50                              PUSH    AX
+   296 000001C0 53                              PUSH    BX
+   297 000001C1 807D1200                        CMP     byte [DI+JPULO], 0
+   298 000001C5 7540                            JNE     sp_fim                      ; adversario no ar: resolve depois
+   299 000001C7 8B04                            MOV     AX, [SI+JX]
+   300 000001C9 2B05                            SUB     AX, [DI+JX]                 ; AX = x_pousou - x_adversario
+   301 000001CB 89C3                            MOV     BX, AX
+   302 000001CD 7902                            JNS     sp_abs
+   303 000001CF F7DB                            NEG     BX
+   304                                  sp_abs:
+   305 000001D1 81FB3200                        CMP     BX, DIST_MIN
+   306 000001D5 7D30                            JGE     sp_fim                      ; ja estao afastados o suficiente
+   307                                  
+   308 000001D7 8B1D                            MOV     BX, [DI+JX]
+   309 000001D9 3D0000                          CMP     AX, 0
+   310 000001DC 7C15                            JL      sp_esquerda
+   311                                          ; caiu a direita (ou exatamente em cima): vai para a direita
+   312 000001DE 81C33200                        ADD     BX, DIST_MIN
+   313 000001E2 81FB5602                        CMP     BX, LIM_DIR
+   314 000001E6 7E1D                            JLE     sp_grava
+   315 000001E8 BB5602                          MOV     BX, LIM_DIR                 ; parede direita: encosta nela
+   316 000001EB B82402                          MOV     AX, LIM_DIR - DIST_MIN
+   317 000001EE 8905                            MOV     [DI+JX], AX                 ; empurra o adversario
+   318 000001F0 E91200                          JMP     sp_grava
+   319                                  sp_esquerda:
+   320                                          ; caiu a esquerda: vai para a esquerda
+   321 000001F3 81EB3200                        SUB     BX, DIST_MIN
+   322 000001F7 81FB2800                        CMP     BX, LIM_ESQ
+   323 000001FB 7D08                            JGE     sp_grava
+   324 000001FD BB2800                          MOV     BX, LIM_ESQ                 ; parede esquerda: encosta nela
+   325 00000200 B85A00                          MOV     AX, LIM_ESQ + DIST_MIN
+   326 00000203 8905                            MOV     [DI+JX], AX                 ; e empurra o adversario
+   327                                  sp_grava:
+   328 00000205 891C                            MOV     [SI+JX], BX
+   329                                  sp_fim:
+   330 00000207 5B                              POP     BX
+   331 00000208 58                              POP     AX
+   332 00000209 C3                              RET
+   333                                  
+   334                                  ; atualiza_direcao
+   335                                  atualiza_direcao:
+   336 0000020A 50                              PUSH    AX
+   337 0000020B A1[0B00]                        MOV     AX, [jogador1+JX]
+   338 0000020E 3B06[1F00]                      CMP     AX, [jogador2+JX]
+   339 00000212 7419                            JE      ad_fim
+   340 00000214 7F0D                            JG      ad_invertido
+   341 00000216 C606[1500]00                    MOV     byte [jogador1+JDIR], 0
+   342 0000021B C606[2900]01                    MOV     byte [jogador2+JDIR], 1
+   343 00000220 E90A00                          JMP     ad_fim
+   344                                  ad_invertido:
+   345 00000223 C606[1500]01                    MOV     byte [jogador1+JDIR], 1
+   346 00000228 C606[2900]00                    MOV     byte [jogador2+JDIR], 0
+   347                                  ad_fim:
+   348 0000022D 58                              POP     AX
+   349 0000022E C3                              RET
+   350                                  
+   351                                  ; atualiza_animacao
+   352                                  ; Entrada: SI = jogador.
+   353                                  atualiza_animacao:
+   354 0000022F 50                              PUSH    AX
+   355 00000230 53                              PUSH    BX
+   356                                  
+   357 00000231 8A5C0E                          MOV     BL, [SI+JESTADO]
+   358 00000234 30FF                            XOR     BH, BH
+   359 00000236 8A87[0600]                      MOV     AL, [limite_frames+BX]      ; numero de frames deste estado
+   360                                  
+   361 0000023A FE4408                          INC     byte [SI+JFRAME]
+   362 0000023D 384408                          CMP     [SI+JFRAME], AL
+   363 00000240 7C22                            JL      aa_fim                      ; ainda dentro da animacao
+   364                                  
+   365 00000242 807C0E04                        CMP     byte [SI+JESTADO], EST_ABAIXA
+   366 00000246 7508                            JNE     aa_ciclo
+   367 00000248 FEC8                            DEC     AL                          ; abaixado: trava no ultimo frame
+   368 0000024A 884408                          MOV     [SI+JFRAME], AL
+   369 0000024D E91400                          JMP     aa_fim
+   370                                  
+   371                                  aa_ciclo:
+   372 00000250 C6440800                        MOV     byte [SI+JFRAME], 0         ; recomeca a animacao
+   373 00000254 807C0E02                        CMP     byte [SI+JESTADO], EST_SOCO
+   374 00000258 7406                            JE      aa_reseta_idle
+   375 0000025A 807C0E03                        CMP     byte [SI+JESTADO], EST_CHUTE
+   376 0000025E 7504                            JNE     aa_fim
+   377                                  aa_reseta_idle:
+   378 00000260 C6440E00                        MOV     byte [SI+JESTADO], EST_IDLE ; golpe terminou
+   379                                  
+   380                                  aa_fim:
+   381 00000264 5B                              POP     BX
+   382 00000265 58                              POP     AX
+   383 00000266 C3                              RET
+   384                                  
+   385                                  ; houve_mudanca
+   386                                  ; Saida: AL = 1 se algum jogador mudou de posicao/frame/estado/direcao desde
+   387                                  houve_mudanca:
+   388 00000267 56                              PUSH    SI
+   389 00000268 BE[0B00]                        MOV     SI, jogador1
+   390 0000026B E80C00                          CALL    jogador_mudou
+   391 0000026E 3C01                            CMP     AL, 1
+   392 00000270 7406                            JE      hm_fim
+   393 00000272 BE[1F00]                        MOV     SI, jogador2
+   394 00000275 E80200                          CALL    jogador_mudou
+   395                                  hm_fim:
+   396 00000278 5E                              POP     SI
+   397 00000279 C3                              RET
+   398                                  
+   399                                  ; Entrada: SI = jogador. Saida: AL = 1 se mudou, 0 se nao.
+   400                                  jogador_mudou:
+   401 0000027A 53                              PUSH    BX
+   402 0000027B B001                            MOV     AL, 1
+   403 0000027D 8B1C                            MOV     BX, [SI+JX]
+   404 0000027F 3B5C04                          CMP     BX, [SI+JXANT]
+   405 00000282 7522                            JNE     jm_fim
+   406 00000284 8B5C02                          MOV     BX, [SI+JY]
+   407 00000287 3B5C06                          CMP     BX, [SI+JYANT]
+   408 0000028A 751A                            JNE     jm_fim
+   409 0000028C 8A5C08                          MOV     BL, [SI+JFRAME]
+   410 0000028F 3A5C09                          CMP     BL, [SI+JFRAMEANT]
+   411 00000292 7512                            JNE     jm_fim
+   412 00000294 8A5C0E                          MOV     BL, [SI+JESTADO]
+   413 00000297 3A5C0F                          CMP     BL, [SI+JESTADOANT]
+   414 0000029A 750A                            JNE     jm_fim
+   415 0000029C 8A5C0A                          MOV     BL, [SI+JDIR]
+   416 0000029F 3A5C0B                          CMP     BL, [SI+JDIRANT]
+   417 000002A2 7502                            JNE     jm_fim
+   418 000002A4 B000                            MOV     AL, 0
+   419                                  jm_fim:
+   420 000002A6 5B                              POP     BX
+   421 000002A7 C3                              RET
+   422                                  
+   423                                  ; pinta_jogador
+   424                                  ; Entrada: SI = jogador. Desenha na posicao ATUAL, com a cor do jogador, e
+   425                                  pinta_jogador:
+   426 000002A8 50                              PUSH    AX
+   427 000002A9 53                              PUSH    BX
+   428 000002AA 51                              PUSH    CX
+   429 000002AB 52                              PUSH    DX
+   430 000002AC 8A440C                          MOV     AL, [SI+JCOR]
+   431 000002AF 8A6408                          MOV     AH, [SI+JFRAME]
+   432 000002B2 8A5C0A                          MOV     BL, [SI+JDIR]
+   433 000002B5 8A7C0E                          MOV     BH, [SI+JESTADO]
+   434 000002B8 8B0C                            MOV     CX, [SI+JX]
+   435 000002BA 8B5402                          MOV     DX, [SI+JY]
+   436 000002BD E8(0000)                        CALL    desenha_jogador            
+   437 000002C0 894C04                          MOV     [SI+JXANT], CX
+   438 000002C3 895406                          MOV     [SI+JYANT], DX
+   439 000002C6 886409                          MOV     [SI+JFRAMEANT], AH
+   440 000002C9 887C0F                          MOV     [SI+JESTADOANT], BH
+   441 000002CC 885C0B                          MOV     [SI+JDIRANT], BL
+   442 000002CF 5A                              POP     DX
+   443 000002D0 59                              POP     CX
+   444 000002D1 5B                              POP     BX
+   445 000002D2 58                              POP     AX
+   446 000002D3 C3                              RET
+   447                                  
+   448                                  ; apaga_jogador
+   449                                  ; Entrada: SI = jogador. Redesenha em PRETO na posicao ANTERIOR.
+   450                                  apaga_jogador:
+   451 000002D4 50                              PUSH    AX
+   452 000002D5 53                              PUSH    BX
+   453 000002D6 51                              PUSH    CX
+   454 000002D7 52                              PUSH    DX
+   455 000002D8 B000                            MOV     AL, preto
+   456 000002DA 8A6409                          MOV     AH, [SI+JFRAMEANT]
+   457 000002DD 8A5C0B                          MOV     BL, [SI+JDIRANT]
+   458 000002E0 8A7C0F                          MOV     BH, [SI+JESTADOANT]
+   459 000002E3 8B4C04                          MOV     CX, [SI+JXANT]
+   460 000002E6 8B5406                          MOV     DX, [SI+JYANT]
+   461 000002E9 E8(0000)                        CALL    desenha_jogador
+   462 000002EC 5A                              POP     DX
+   463 000002ED 59                              POP     CX
+   464 000002EE 5B                              POP     BX
+   465 000002EF 58                              POP     AX
+   466 000002F0 C3                              RET
+   467                                  
+   468                                  segment data public class=DATA
+   469                                  
+   470                                  ; Mapa de teclas do jogador sendo processado por controla_jogador
+   471 00000000 00                      tecla_cima      DB      0
+   472 00000001 00                      tecla_baixo     DB      0
+   473 00000002 00                      tecla_esq       DB      0
+   474 00000003 00                      tecla_dir       DB      0
+   475 00000004 00                      tecla_soco      DB      0
+   476 00000005 00                      tecla_chute     DB      0
+   477                                  
+   478                                  ; Numero de frames de cada estado: parado, andar, soco, chute, abaixar.
+   479 00000006 010A0A0A03              limite_frames   DB      1, 10, 10, 10, 3
+   480                                  
+   481                                  ; Jogadores 
+   482                                  jogador1:
+   483 0000000B 96009C00                        DW      X_INICIAL_J1, Y_CHAO    ; JX, JY
+   484 0000000F 96009C00                        DW      X_INICIAL_J1, Y_CHAO    ; JXANT, JYANT
+   485 00000013 0000                            DB      0, 0                    ; JFRAME, JFRAMEANT
+   486 00000015 0000                            DB      0, 0                    ; JDIR, JDIRANT   (olha para a direita)
+   487 00000017 09                              DB      azul_claro              ; JCOR
+   488 00000018 0A                              DB      ENERGIA_INICIAL         ; JENERGIA
+   489 00000019 0000                            DB      EST_IDLE, EST_IDLE      ; JESTADO, JESTADOANT
+   490 0000001B 0000                            DW      0                       ; JVY
+   491 0000001D 00                              DB      0                       ; JPULO
+   492 0000001E 00                              DB      0                       ; reserva
+   493                                  
+   494                                  jogador2:
+   495 0000001F EA019C00                        DW      X_INICIAL_J2, Y_CHAO    ; JX, JY
+   496 00000023 EA019C00                        DW      X_INICIAL_J2, Y_CHAO    ; JXANT, JYANT
+   497 00000027 0000                            DB      0, 0                    ; JFRAME, JFRAMEANT
+   498 00000029 0101                            DB      1, 1                    ; JDIR, JDIRANT   (olha para a esquerda)
+   499 0000002B 04                              DB      vermelho                ; JCOR
+   500 0000002C 0A                              DB      ENERGIA_INICIAL         ; JENERGIA
+   501 0000002D 0000                            DB      EST_IDLE, EST_IDLE      ; JESTADO, JESTADOANT
+   502 0000002F 0000                            DW      0                       ; JVY
+   503 00000031 00                              DB      0                       ; JPULO
+   504 00000032 00                              DB      0                       ; reserva

@@ -1,246 +1,205 @@
-     1                                  ; =============================================================================
-     2                                  ; trabalho.asm  -  Jogo de Luta em Assembly 8086 (modulo principal)
-     3                                  ; -----------------------------------------------------------------------------
-     4                                  ; Responsabilidades deste modulo:
-     5                                  ;   - inicializacao (segmentos, pilha, ISRs, modo de video)
-     6                                  ;   - maquina de estados do jogo:
-     7                                  ;       SELECAO -> [ROUND -> LUTA -> FIM DO ROUND]... -> GAME OVER
-     8                                  ;                                                          |  Y: nova partida
-     9                                  ;                                                          |  N: encerra
-    10                                  ;   - laco principal da luta, sincronizado com a INT 8h
-    11                                  ;   - restauracao do sistema na saida (vetores 8h/9h e modo de video)
-    12                                  ;
-    13                                  ; Organizacao dos modulos:
-    14                                  ;   trabalho.asm : inicializacao, fluxo do jogo e laco principal (este)
-    15                                  ;   teclado.asm  : ISR da INT 9h, tabela de estado e fila de eventos
-    16                                  ;   tempo.asm    : ISR da INT 8h, tique do jogo e cronometro do round
-    17                                  ;   jogador.asm  : controles, movimento, pulo, animacao e desenho dos lutadores
-    18                                  ;   colisao.asm  : deteccao de golpes validos
-    19                                  ;   logica.asm   : fim de round/partida, desempate, pausa (P) e saida (Q)
-    20                                  ;   hud.asm      : arena, barras de energia, rounds, tempo e mensagens
-    21                                  ;   telas.asm    : selecao de lutadores, avisos de round e Game Over
-    22                                  ;   graficos.asm : primitivas graficas (modo 12h) e desenho do boneco
-    23                                  ;
-    24                                  ; Cada modulo declara, no inicio, as constantes (EQU) que usa.
-    25                                  ;
-    26                                  ; Montagem: MAKE.BAT (padrao da disciplina) ou Makefile. Ver README.md.
-    27                                  ; =============================================================================
-    28                                  
-    29                                  ; ------------------------------- Simbolos externos ----------------------------
-    30                                  extern  instala_teclado             ; teclado.asm
-    31                                  extern  restaura_teclado
-    32                                  extern  limpa_eventos
-    33                                  extern  instala_relogio             ; tempo.asm
-    34                                  extern  restaura_relogio
-    35                                  extern  zera_cronometro
-    36                                  extern  tique_jogo
-    37                                  extern  relogio_ativo
-    38                                  extern  jogador1                    ; jogador.asm
-    39                                  extern  jogador2
-    40                                  extern  reseta_lutadores
-    41                                  extern  le_controles
-    42                                  extern  fisica_jogador
-    43                                  extern  atualiza_direcao
-    44                                  extern  atualiza_animacao
-    45                                  extern  houve_mudanca
-    46                                  extern  pinta_jogador
-    47                                  extern  apaga_jogador
-    48                                  extern  verifica_golpe              ; colisao.asm
-    49                                  extern  inicia_partida              ; logica.asm
-    50                                  extern  verifica_fim_round
-    51                                  extern  trata_eventos
-    52                                  extern  round_acabou
-    53                                  extern  vencedor
-    54                                  extern  ultimo_golpe
-    55                                  extern  sair_flag
-    56                                  extern  desenha_cenario             ; hud.asm
-    57                                  extern  desenha_tempo
-    58                                  extern  desenha_rounds
-    59                                  extern  tela_selecao                ; telas.asm
-    60                                  extern  anuncia_round
-    61                                  extern  anuncia_fim_round
-    62                                  extern  tela_game_over
-    63                                  
-    64                                  ; =============================================================================
-    65                                  segment code public class=CODE
-    66                                  ..start:
-    67                                  ; ---------------------------------------------- Registradores de segmento/pilha
-    68 00000000 B8[0000]                        MOV     AX, data
-    69 00000003 8ED8                            MOV     DS, AX
-    70 00000005 B8[0000]                        MOV     AX, stack
-    71 00000008 8ED0                            MOV     SS, AX
-    72 0000000A BC[0008]                        MOV     SP, stacktop
-    73 0000000D FC                              CLD
-    74                                  
-    75                                  ; ---------------------------------------------- Modo de video
-    76 0000000E B40F                            MOV     AH, 0Fh                     ; le o modo de video atual
-    77 00000010 CD10                            INT     10h
-    78 00000012 A2[0000]                        MOV     [modo_anterior], AL         ; (restaurado na saida)
-    79                                  
-    80                                  ; ---------------------------------------------- ISRs de teclado e relogio
-    81 00000015 C606[0000]00                    MOV     byte [relogio_ativo], 0
-    82 0000001A E8(0000)                        CALL    instala_teclado
-    83 0000001D E8(0000)                        CALL    instala_relogio
-    84                                  
-    85                                  ; =============================================================================
-    86                                  ; NOVA PARTIDA: tela de selecao de lutadores
-    87                                  ; =============================================================================
-    88                                  nova_partida:
-    89 00000020 C606[0000]00                    MOV     byte [relogio_ativo], 0
-    90 00000025 C606[0000]00                    MOV     byte [sair_flag], 0
-    91 0000002A E8(0000)                        CALL    tela_selecao
-    92 0000002D 803E[0000]00                    CMP     byte [sair_flag], 0
-    93 00000032 7403                            JE      np_ok
-    94 00000034 E9F300                          JMP     fim
-    95                                  np_ok:
-    96 00000037 E8(0000)                        CALL    inicia_partida              ; placar 0 x 0
-    97                                  
-    98                                  ; =============================================================================
-    99                                  ; NOVO ROUND
-   100                                  ; =============================================================================
-   101                                  novo_round:
-   102 0000003A C606[0000]00                    MOV     byte [relogio_ativo], 0     ; cronometro parado ate o "LUTEM!"
-   103 0000003F E8(0000)                        CALL    reseta_lutadores
-   104 00000042 E8(0000)                        CALL    zera_cronometro
-   105 00000045 C606[0000]00                    MOV     byte [round_acabou], 0
-   106 0000004A C606[0000]00                    MOV     byte [ultimo_golpe], 0
-   107                                  
-   108 0000004F E8(0000)                        CALL    desenha_cenario             ; arena + HUD
-   109 00000052 BE[0000]                        MOV     SI, jogador1
-   110 00000055 E8(0000)                        CALL    pinta_jogador
-   111 00000058 BE[0000]                        MOV     SI, jogador2
-   112 0000005B E8(0000)                        CALL    pinta_jogador
-   113                                  
-   114 0000005E E8(0000)                        CALL    anuncia_round               ; "ROUND n" / "LUTEM!"
-   115 00000061 803E[0000]00                    CMP     byte [sair_flag], 0
-   116 00000066 7403                            JE      nr_ok
-   117 00000068 E9BF00                          JMP     fim
-   118                                  nr_ok:
-   119 0000006B E8(0000)                        CALL    limpa_eventos
-   120 0000006E A1[0000]                        MOV     AX, [tique_jogo]
-   121 00000071 A3[0100]                        MOV     [ultimo_tique], AX
-   122 00000074 C606[0000]01                    MOV     byte [relogio_ativo], 1     ; o tempo do round comeca a correr
-   123                                  
-   124                                  ; =============================================================================
-   125                                  ; LACO PRINCIPAL DA LUTA
-   126                                  ; Roda uma vez a cada tique da INT 8h (~55 ms, 18,2 vezes por segundo).
-   127                                  ; Entre tiques o processador fica em HLT: nao ha atraso por laco de software.
-   128                                  ; =============================================================================
-   129                                  loop_jogo:
-   130 00000079 A1[0000]                        MOV     AX, [tique_jogo]
-   131 0000007C 3B06[0100]                      CMP     AX, [ultimo_tique]
-   132 00000080 7504                            JNE     lj_tique
-   133 00000082 F4                              HLT                                 ; espera a proxima interrupcao
-   134 00000083 E9F3FF                          JMP     loop_jogo
-   135                                  lj_tique:
-   136 00000086 A3[0100]                        MOV     [ultimo_tique], AX
-   137                                  
-   138                                          ; ---- 1. Comandos pontuais: P (pausa) e Q/ESC (sair) ---------------
-   139 00000089 E8(0000)                        CALL    trata_eventos
-   140 0000008C 803E[0000]00                    CMP     byte [sair_flag], 0
-   141 00000091 7403                            JE      lj_controles
-   142 00000093 E99400                          JMP     fim
-   143                                  lj_controles:
-   144                                          ; Se houve pausa, o tique_jogo avancou durante ela: ressincroniza
-   145                                          ; para retomar exatamente do mesmo ponto.
-   146 00000096 A1[0000]                        MOV     AX, [tique_jogo]
-   147 00000099 A3[0100]                        MOV     [ultimo_tique], AX
-   148                                  
-   149                                          ; ---- 2. Teclas mantidas pressionadas (tabela de estado) ------------
-   150 0000009C E8(0000)                        CALL    le_controles
-   151                                  
-   152                                          ; ---- 3. Fisica do pulo (gravidade e pouso) -------------------------
-   153 0000009F BE[0000]                        MOV     SI, jogador1
-   154 000000A2 BF[0000]                        MOV     DI, jogador2
-   155 000000A5 E8(0000)                        CALL    fisica_jogador
-   156 000000A8 BE[0000]                        MOV     SI, jogador2
-   157 000000AB BF[0000]                        MOV     DI, jogador1
-   158 000000AE E8(0000)                        CALL    fisica_jogador
-   159                                  
-   160                                          ; ---- 4. Vira os lutadores um para o outro --------------------------
-   161 000000B1 E8(0000)                        CALL    atualiza_direcao
-   162                                  
-   163                                          ; ---- 5. Avanca os frames de animacao -------------------------------
-   164 000000B4 BE[0000]                        MOV     SI, jogador1
-   165 000000B7 E8(0000)                        CALL    atualiza_animacao
-   166 000000BA BE[0000]                        MOV     SI, jogador2
-   167 000000BD E8(0000)                        CALL    atualiza_animacao
-   168                                  
-   169                                          ; ---- 6. Golpes validos ---------------------------------------------
-   170 000000C0 BE[0000]                        MOV     SI, jogador1                ; J1 atacando J2
-   171 000000C3 BF[0000]                        MOV     DI, jogador2
-   172 000000C6 E8(0000)                        CALL    verifica_golpe
-   173 000000C9 BE[0000]                        MOV     SI, jogador2                ; J2 atacando J1
-   174 000000CC BF[0000]                        MOV     DI, jogador1
-   175 000000CF E8(0000)                        CALL    verifica_golpe
-   176                                  
-   177                                          ; ---- 7. Cronometro na tela -----------------------------------------
-   178 000000D2 E8(0000)                        CALL    desenha_tempo
-   179                                  
-   180                                          ; ---- 8. Redesenha os lutadores apenas se algo mudou ----------------
-   181 000000D5 E8(0000)                        CALL    houve_mudanca               ; AL = 1 se precisa redesenhar
-   182 000000D8 3C00                            CMP     AL, 0
-   183 000000DA 7418                            JE      lj_fim_round
-   184 000000DC BE[0000]                        MOV     SI, jogador1                ; apaga os dois na posicao antiga...
-   185 000000DF E8(0000)                        CALL    apaga_jogador
-   186 000000E2 BE[0000]                        MOV     SI, jogador2
-   187 000000E5 E8(0000)                        CALL    apaga_jogador
-   188 000000E8 BE[0000]                        MOV     SI, jogador1                ; ...e redesenha os dois na nova
-   189 000000EB E8(0000)                        CALL    pinta_jogador               ; (redesenhar ambos evita que um
-   190 000000EE BE[0000]                        MOV     SI, jogador2                ;  apague um pedaco do outro)
-   191 000000F1 E8(0000)                        CALL    pinta_jogador
-   192                                  
-   193                                          ; ---- 9. Fim do round? ----------------------------------------------
-   194                                  lj_fim_round:
-   195 000000F4 E8(0000)                        CALL    verifica_fim_round
-   196 000000F7 803E[0000]00                    CMP     byte [round_acabou], 0
-   197 000000FC 7503                            JNE     lj_round_acabou
-   198 000000FE E978FF                          JMP     loop_jogo
+     1                                  ; trabalho.asm  -  Jogo de Luta em Assembly 8086 (modulo principal)
+     2                                  
+     3                                  ; Simbolos externos
+     4                                  extern  instala_teclado             ; teclado.asm
+     5                                  extern  restaura_teclado
+     6                                  extern  limpa_eventos
+     7                                  extern  instala_relogio             ; tempo.asm
+     8                                  extern  restaura_relogio
+     9                                  extern  zera_cronometro
+    10                                  extern  tique_jogo
+    11                                  extern  relogio_ativo
+    12                                  extern  jogador1                    ; jogador.asm
+    13                                  extern  jogador2
+    14                                  extern  reseta_lutadores
+    15                                  extern  le_controles
+    16                                  extern  fisica_jogador
+    17                                  extern  atualiza_direcao
+    18                                  extern  atualiza_animacao
+    19                                  extern  houve_mudanca
+    20                                  extern  pinta_jogador
+    21                                  extern  apaga_jogador
+    22                                  extern  verifica_golpe              ; colisao.asm
+    23                                  extern  inicia_partida              ; logica.asm
+    24                                  extern  verifica_fim_round
+    25                                  extern  trata_eventos
+    26                                  extern  round_acabou
+    27                                  extern  vencedor
+    28                                  extern  ultimo_golpe
+    29                                  extern  sair_flag
+    30                                  extern  desenha_cenario             ; hud.asm
+    31                                  extern  desenha_tempo
+    32                                  extern  desenha_rounds
+    33                                  extern  tela_selecao                ; telas.asm
+    34                                  extern  anuncia_round
+    35                                  extern  anuncia_fim_round
+    36                                  extern  tela_game_over
+    37                                  
+    38                                  segment code public class=CODE
+    39                                  ..start:
+    40                                  ; Registradores de segmento/pilha
+    41 00000000 B8[0000]                        MOV     AX, data
+    42 00000003 8ED8                            MOV     DS, AX
+    43 00000005 B8[0000]                        MOV     AX, stack
+    44 00000008 8ED0                            MOV     SS, AX
+    45 0000000A BC[0008]                        MOV     SP, stacktop
+    46 0000000D FC                              CLD
+    47                                  
+    48                                  ; Modo de video
+    49 0000000E B40F                            MOV     AH, 0Fh                     ; le o modo de video atual
+    50 00000010 CD10                            INT     10h
+    51 00000012 A2[0000]                        MOV     [modo_anterior], AL         ; (restaurado na saida)
+    52                                  
+    53                                  ; ISRs de teclado e relogio
+    54 00000015 C606[0000]00                    MOV     byte [relogio_ativo], 0
+    55 0000001A E8(0000)                        CALL    instala_teclado
+    56 0000001D E8(0000)                        CALL    instala_relogio
+    57                                  
+    58                                  ; NOVA PARTIDA: tela de selecao de lutadores
+    59                                  nova_partida:
+    60 00000020 C606[0000]00                    MOV     byte [relogio_ativo], 0
+    61 00000025 C606[0000]00                    MOV     byte [sair_flag], 0
+    62 0000002A E8(0000)                        CALL    tela_selecao
+    63 0000002D 803E[0000]00                    CMP     byte [sair_flag], 0
+    64 00000032 7403                            JE      np_ok
+    65 00000034 E9F300                          JMP     fim
+    66                                  np_ok:
+    67 00000037 E8(0000)                        CALL    inicia_partida              ; placar 0 x 0
+    68                                  
+    69                                  ; NOVO ROUND
+    70                                  novo_round:
+    71 0000003A C606[0000]00                    MOV     byte [relogio_ativo], 0     ; cronometro parado ate o "LUTEM!"
+    72 0000003F E8(0000)                        CALL    reseta_lutadores
+    73 00000042 E8(0000)                        CALL    zera_cronometro
+    74 00000045 C606[0000]00                    MOV     byte [round_acabou], 0
+    75 0000004A C606[0000]00                    MOV     byte [ultimo_golpe], 0
+    76                                  
+    77 0000004F E8(0000)                        CALL    desenha_cenario             ; arena + HUD
+    78 00000052 BE[0000]                        MOV     SI, jogador1
+    79 00000055 E8(0000)                        CALL    pinta_jogador
+    80 00000058 BE[0000]                        MOV     SI, jogador2
+    81 0000005B E8(0000)                        CALL    pinta_jogador
+    82                                  
+    83 0000005E E8(0000)                        CALL    anuncia_round               ; "ROUND n" / "LUTEM!"
+    84 00000061 803E[0000]00                    CMP     byte [sair_flag], 0
+    85 00000066 7403                            JE      nr_ok
+    86 00000068 E9BF00                          JMP     fim
+    87                                  nr_ok:
+    88 0000006B E8(0000)                        CALL    limpa_eventos
+    89 0000006E A1[0000]                        MOV     AX, [tique_jogo]
+    90 00000071 A3[0100]                        MOV     [ultimo_tique], AX
+    91 00000074 C606[0000]01                    MOV     byte [relogio_ativo], 1     ; o tempo do round comeca a correr
+    92                                  
+    93                                  ; LACO PRINCIPAL DA LUTA
+    94                                  ; Roda uma vez a cada tique da INT 8h
+    95                                  loop_jogo:
+    96 00000079 A1[0000]                        MOV     AX, [tique_jogo]
+    97 0000007C 3B06[0100]                      CMP     AX, [ultimo_tique]
+    98 00000080 7504                            JNE     lj_tique
+    99 00000082 F4                              HLT                                 ; espera a proxima interrupcao
+   100 00000083 E9F3FF                          JMP     loop_jogo
+   101                                  lj_tique:
+   102 00000086 A3[0100]                        MOV     [ultimo_tique], AX
+   103                                  
+   104                                          ; 1. Comandos pontuais: P (pausa) e Q/ESC (sair)
+   105 00000089 E8(0000)                        CALL    trata_eventos
+   106 0000008C 803E[0000]00                    CMP     byte [sair_flag], 0
+   107 00000091 7403                            JE      lj_controles
+   108 00000093 E99400                          JMP     fim
+   109                                  lj_controles:
+   110                                          ; Se houve pausa, o tique_jogo avancou durante ela: ressincroniza
+   111                                          ; para retomar exatamente do mesmo ponto.
+   112 00000096 A1[0000]                        MOV     AX, [tique_jogo]
+   113 00000099 A3[0100]                        MOV     [ultimo_tique], AX
+   114                                  
+   115                                          ; 2. Teclas mantidas pressionadas
+   116 0000009C E8(0000)                        CALL    le_controles
+   117                                  
+   118                                          ; 3. Fisica do pulo
+   119 0000009F BE[0000]                        MOV     SI, jogador1
+   120 000000A2 BF[0000]                        MOV     DI, jogador2
+   121 000000A5 E8(0000)                        CALL    fisica_jogador
+   122 000000A8 BE[0000]                        MOV     SI, jogador2
+   123 000000AB BF[0000]                        MOV     DI, jogador1
+   124 000000AE E8(0000)                        CALL    fisica_jogador
+   125                                  
+   126                                          ; 4. Vira os lutadores um para o outro 
+   127 000000B1 E8(0000)                        CALL    atualiza_direcao
+   128                                  
+   129                                          ; 5. Avanca os frames de animacao 
+   130 000000B4 BE[0000]                        MOV     SI, jogador1
+   131 000000B7 E8(0000)                        CALL    atualiza_animacao
+   132 000000BA BE[0000]                        MOV     SI, jogador2
+   133 000000BD E8(0000)                        CALL    atualiza_animacao
+   134                                  
+   135                                          ; 6. Golpes validos 
+   136 000000C0 BE[0000]                        MOV     SI, jogador1                ; J1 atacando J2
+   137 000000C3 BF[0000]                        MOV     DI, jogador2
+   138 000000C6 E8(0000)                        CALL    verifica_golpe
+   139 000000C9 BE[0000]                        MOV     SI, jogador2                ; J2 atacando J1
+   140 000000CC BF[0000]                        MOV     DI, jogador1
+   141 000000CF E8(0000)                        CALL    verifica_golpe
+   142                                  
+   143                                          ; 7. Cronometro na tela 
+   144 000000D2 E8(0000)                        CALL    desenha_tempo
+   145                                  
+   146                                          ; 8. Redesenha os lutadores apenas se algo mudou 
+   147 000000D5 E8(0000)                        CALL    houve_mudanca               ; AL = 1 se precisa redesenhar
+   148 000000D8 3C00                            CMP     AL, 0
+   149 000000DA 7418                            JE      lj_fim_round
+   150 000000DC BE[0000]                        MOV     SI, jogador1                ; apaga os dois na posicao antiga
+   151 000000DF E8(0000)                        CALL    apaga_jogador
+   152 000000E2 BE[0000]                        MOV     SI, jogador2
+   153 000000E5 E8(0000)                        CALL    apaga_jogador
+   154 000000E8 BE[0000]                        MOV     SI, jogador1                ; redesenha os dois na nova
+   155 000000EB E8(0000)                        CALL    pinta_jogador               
+   156 000000EE BE[0000]                        MOV     SI, jogador2                
+   157 000000F1 E8(0000)                        CALL    pinta_jogador
+   158                                  
+   159                                          ; 9. Fim do round?
+   160                                  lj_fim_round:
+   161 000000F4 E8(0000)                        CALL    verifica_fim_round
+   162 000000F7 803E[0000]00                    CMP     byte [round_acabou], 0
+   163 000000FC 7503                            JNE     lj_round_acabou
+   164 000000FE E978FF                          JMP     loop_jogo
+   165                                  
+   166                                  lj_round_acabou:
+   167 00000101 C606[0000]00                    MOV     byte [relogio_ativo], 0
+   168 00000106 E8(0000)                        CALL    desenha_rounds              ; marca o round vencido no HUD
+   169 00000109 E8(0000)                        CALL    anuncia_fim_round
+   170 0000010C 803E[0000]00                    CMP     byte [sair_flag], 0
+   171 00000111 7403                            JE      lj_proximo
+   172 00000113 E91400                          JMP     fim
+   173                                  lj_proximo:
+   174 00000116 803E[0000]00                    CMP     byte [vencedor], 0
+   175 0000011B 7503                            JNE     game_over
+   176 0000011D E91AFF                          JMP     novo_round
+   177                                  
+   178                                  ; GAME OVER: Y = nova partida, N = encerra
+   179                                  game_over:
+   180 00000120 E8(0000)                        CALL    tela_game_over              ; AL = 1 (Y) ou 0 (N / Q confirmado)
+   181 00000123 3C01                            CMP     AL, 1
+   182 00000125 7503                            JNE     fim
+   183 00000127 E9F6FE                          JMP     nova_partida
+   184                                  
+   185                                  ; fim: restaura vetores e modo de video e devolve o controle ao DOS.
+   186                                  fim:
+   187 0000012A C606[0000]00                    MOV     byte [relogio_ativo], 0
+   188 0000012F E8(0000)                        CALL    restaura_relogio            ; vetor original da INT 8h
+   189 00000132 E8(0000)                        CALL    restaura_teclado            ; vetor original da INT 9h
+   190                                  
+   191 00000135 B400                            MOV     AH, 0                       ; modo de video original
+   192 00000137 A0[0000]                        MOV     AL, [modo_anterior]
+   193 0000013A CD10                            INT     10h
+   194                                  
+   195 0000013C B8004C                          MOV     AX, 4C00h                   ; retorna ao DOS
+   196 0000013F CD21                            INT     21h
+   197                                  
+   198                                  segment data public class=DATA
    199                                  
-   200                                  lj_round_acabou:
-   201 00000101 C606[0000]00                    MOV     byte [relogio_ativo], 0
-   202 00000106 E8(0000)                        CALL    desenha_rounds              ; marca o round vencido no HUD
-   203 00000109 E8(0000)                        CALL    anuncia_fim_round
-   204 0000010C 803E[0000]00                    CMP     byte [sair_flag], 0
-   205 00000111 7403                            JE      lj_proximo
-   206 00000113 E91400                          JMP     fim
-   207                                  lj_proximo:
-   208 00000116 803E[0000]00                    CMP     byte [vencedor], 0
-   209 0000011B 7503                            JNE     game_over
-   210 0000011D E91AFF                          JMP     novo_round
-   211                                  
-   212                                  ; =============================================================================
-   213                                  ; GAME OVER: Y = nova partida, N = encerra
-   214                                  ; =============================================================================
-   215                                  game_over:
-   216 00000120 E8(0000)                        CALL    tela_game_over              ; AL = 1 (Y) ou 0 (N / Q confirmado)
-   217 00000123 3C01                            CMP     AL, 1
-   218 00000125 7503                            JNE     fim
-   219 00000127 E9F6FE                          JMP     nova_partida
-   220                                  
-   221                                  ; =============================================================================
-   222                                  ; fim: restaura vetores e modo de video e devolve o controle ao DOS.
-   223                                  ; Unico ponto de saida do programa (Game Over -> N, ou Q/ESC confirmado).
-   224                                  ; =============================================================================
-   225                                  fim:
-   226 0000012A C606[0000]00                    MOV     byte [relogio_ativo], 0
-   227 0000012F E8(0000)                        CALL    restaura_relogio            ; vetor original da INT 8h
-   228 00000132 E8(0000)                        CALL    restaura_teclado            ; vetor original da INT 9h
-   229                                  
-   230 00000135 B400                            MOV     AH, 0                       ; modo de video original
-   231 00000137 A0[0000]                        MOV     AL, [modo_anterior]
-   232 0000013A CD10                            INT     10h
-   233                                  
-   234 0000013C B8004C                          MOV     AX, 4C00h                   ; retorna ao DOS
-   235 0000013F CD21                            INT     21h
-   236                                  
-   237                                  ; =============================================================================
-   238                                  segment data public class=DATA
-   239                                  
-   240 00000000 00                      modo_anterior   DB      0           ; modo de video ao iniciar o programa
-   241 00000001 0000                    ultimo_tique    DW      0           ; ultimo tique processado pelo laco
-   242                                  
-   243                                  ; =============================================================================
-   244                                  segment stack stack
-   245 00000000 <res 00000800>                  resb    2048
-   246                                  stacktop:
+   200 00000000 00                      modo_anterior   DB      0           ; modo de video ao iniciar o programa
+   201 00000001 0000                    ultimo_tique    DW      0           ; ultimo tique processado pelo laco
+   202                                  
+   203                                  segment stack stack
+   204 00000000 <res 00000800>                  resb    2048
+   205                                  stacktop:

@@ -1,578 +1,525 @@
-     1                                  ; =============================================================================
-     2                                  ; telas.asm  -  Telas do jogo: selecao de lutadores, avisos de round e Game Over
-     3                                  ; -----------------------------------------------------------------------------
-     4                                  ; tela_selecao      : cada jogador escolhe a cor do seu lutador
-     5                                  ;                     (J1: W/S, J2: setas cima/baixo, ENTER inicia a luta).
-     6                                  ;                     Os dois nao podem ficar com a mesma cor: a cor ja
-     7                                  ;                     escolhida pelo adversario e pulada automaticamente.
-     8                                  ; anuncia_round     : "ROUND n" / "LUTEM!" antes de cada round
-     9                                  ; anuncia_fim_round : motivo do fim (nocaute ou tempo) e vencedor do round
-    10                                  ; tela_game_over    : "GAME OVER", vencedor, placar e menu Y/N
-    11                                  ;
-    12                                  ; Em todas as telas, Q/ESC pede confirmacao de saida (Y/N).
-    13                                  ; =============================================================================
-    14                                  
-    15                                  ; ------------------------------- Constantes (EQU) -----------------------------
-    16                                  ; Constantes usadas por este modulo. Um EQU nao ocupa memoria: o montador
-    17                                  ; troca o nome pelo valor. As que aparecem em mais de um modulo (estrutura do
-    18                                  ; jogador, cores, scan codes, regras) precisam ter o MESMO valor em todos.
-    19                                  
-    20                                  ; ------------------------------- Scan codes (make) ----------------------------
-    21                                  TEC_ESC         EQU     01h
-    22                                  TEC_Q           EQU     10h
-    23                                  TEC_W           EQU     11h
-    24                                  TEC_Y           EQU     15h
-    25                                  TEC_ENTER       EQU     1Ch
-    26                                  TEC_S           EQU     1Fh
-    27                                  TEC_N           EQU     31h
-    28                                  TEC_CIMA        EQU     48h         ; seta para cima   (chega apos o prefixo E0h)
-    29                                  TEC_BAIXO       EQU     50h         ; seta para baixo  (apos E0h)
-    30                                  
-    31                                  ; ------------------------------- Cores (paleta padrao VGA) --------------------
-    32                                  vermelho        EQU     4           ; 0 1 0 0
-    33                                  marrom          EQU     6           ; 0 1 1 0
-    34                                  branco          EQU     7           ; 0 1 1 1
-    35                                  cinza           EQU     8           ; 1 0 0 0
-    36                                  azul_claro      EQU     9           ; 1 0 0 1
-    37                                  verde_claro     EQU     10          ; 1 0 1 0
-    38                                  cyan_claro      EQU     11          ; 1 0 1 1
-    39                                  magenta_claro   EQU     13          ; 1 1 0 1
-    40                                  amarelo         EQU     14          ; 1 1 1 0
-    41                                  branco_intenso  EQU     15          ; 1 1 1 1
-    42                                  
-    43                                  ; ------------------------------- Arena e HUD ----------------------------------
-    44                                  LIN_MSG         EQU     6           ; mensagens no centro da arena (acima do pulo)
-    45                                  
-    46                                  ; ------------------------------- Regras do jogo -------------------------------
-    47                                  MOTIVO_TEMPO    EQU     2           ; round terminou por tempo esgotado
-    48                                  
-    49                                  ; ------------------------------- Colisao --------------------------------------
-    50                                  FRAME_IMPACTO_SOCO  EQU 2           ; frame da animacao em que o soco "pega"
-    51                                  
-    52                                  ; ------------------------------- Estados de animacao --------------------------
-    53                                  EST_IDLE        EQU     0
-    54                                  EST_SOCO        EQU     2
-    55                                  
-    56                                  ; ------------------------------- Estrutura de um jogador (20 bytes) -----------
-    57                                  JCOR            EQU     12          ; db  cor do lutador (escolhida na selecao)
-    58                                  
-    59                                  global  tela_selecao
-    60                                  global  anuncia_round
-    61                                  global  anuncia_fim_round
-    62                                  global  tela_game_over
+     1                                  ; telas.asm - Telas do jogo: selecao de lutadores, avisos de round e Game Over
+     2                                  
+     3                                  ; Scan codes (make)
+     4                                  TEC_ESC         EQU     01h
+     5                                  TEC_Q           EQU     10h
+     6                                  TEC_W           EQU     11h
+     7                                  TEC_Y           EQU     15h
+     8                                  TEC_ENTER       EQU     1Ch
+     9                                  TEC_S           EQU     1Fh
+    10                                  TEC_N           EQU     31h
+    11                                  TEC_CIMA        EQU     48h         ; seta para cima  
+    12                                  TEC_BAIXO       EQU     50h         ; seta para baixo 
+    13                                  
+    14                                  ; Cores (paleta padrao VGA)
+    15                                  vermelho        EQU     4           ; 0 1 0 0
+    16                                  branco          EQU     7           ; 0 1 1 1
+    17                                  cinza           EQU     8           ; 1 0 0 0
+    18                                  azul_claro      EQU     9           ; 1 0 0 1
+    19                                  verde_claro     EQU     10          ; 1 0 1 0
+    20                                  amarelo         EQU     14          ; 1 1 1 0
+    21                                  branco_intenso  EQU     15          ; 1 1 1 1
+    22                                  
+    23                                  ; Arena e HUD
+    24                                  LIN_MSG         EQU     6      
+    25                                  
+    26                                  ; Regras do jogo
+    27                                  MOTIVO_TEMPO    EQU     2        
+    28                                  
+    29                                  ; Colisao
+    30                                  FRAME_IMPACTO_SOCO  EQU 2           ; frame da animacao em que o soco "pega"
+    31                                  
+    32                                  ; Estados de animacao
+    33                                  EST_IDLE        EQU     0
+    34                                  EST_SOCO        EQU     2
+    35                                  
+    36                                  ; Estrutura de um jogador
+    37                                  JCOR            EQU     12          ; db  cor do lutador
+    38                                  
+    39                                  global  tela_selecao
+    40                                  global  anuncia_round
+    41                                  global  anuncia_fim_round
+    42                                  global  tela_game_over
+    43                                  
+    44                                  extern  espera_evento               ; teclado.asm
+    45                                  extern  limpa_eventos
+    46                                  extern  desenha_jogador             ; graficos.asm
+    47                                  extern  escreve_texto
+    48                                  extern  limpa_tela
+    49                                  extern  line
+    50                                  extern  cor
+    51                                  extern  msg_centro                  ; hud.asm
+    52                                  extern  apaga_linha
+    53                                  extern  jogador1                    ; jogador.asm
+    54                                  extern  jogador2
+    55                                  extern  confirma_saida              ; logica.asm
+    56                                  extern  aguarda
+    57                                  extern  sair_flag
+    58                                  extern  rounds_p1
+    59                                  extern  rounds_p2
+    60                                  extern  vencedor
+    61                                  extern  vencedor_round
+    62                                  extern  motivo_fim
     63                                  
-    64                                  extern  espera_evento               ; teclado.asm
-    65                                  extern  limpa_eventos
-    66                                  extern  desenha_jogador             ; graficos.asm
-    67                                  extern  escreve_texto
-    68                                  extern  limpa_tela
-    69                                  extern  line
-    70                                  extern  cor
-    71                                  extern  msg_centro                  ; hud.asm
-    72                                  extern  apaga_linha
-    73                                  extern  jogador1                    ; jogador.asm
-    74                                  extern  jogador2
-    75                                  extern  confirma_saida              ; logica.asm
-    76                                  extern  aguarda
-    77                                  extern  sair_flag
-    78                                  extern  rounds_p1
-    79                                  extern  rounds_p2
-    80                                  extern  vencedor
-    81                                  extern  vencedor_round
-    82                                  extern  motivo_fim
-    83                                  
-    84                                  NUM_CORES       EQU     8           ; potencia de 2 (indice mascarado)
-    85                                  LIN_TITULO      EQU     2
-    86                                  LIN_CABECALHO   EQU     5
-    87                                  LIN_LISTA       EQU     7           ; primeira linha da lista de cores
-    88                                  COL_MARCA_J1    EQU     5
-    89                                  COL_MARCA_J2    EQU     59
-    90                                  X_PREVIA_J1     EQU     260
-    91                                  X_PREVIA_J2     EQU     380
-    92                                  Y_PREVIA        EQU     225         ; ombros do boneco de previa
-    93                                  LIN_CTRL        EQU     23
-    94                                  
-    95                                  TIQUES_ROUND    EQU     27          ; ~1,5 s mostrando "ROUND n"
-    96                                  TIQUES_LUTEM    EQU     11          ; ~0,6 s mostrando "LUTEM!"
-    97                                  TIQUES_FIM      EQU     45          ; ~2,5 s mostrando o vencedor do round
-    98                                  
-    99                                  segment code public class=CODE
-   100                                  
-   101                                  ; =============================================================================
-   102                                  ; tela_selecao
-   103                                  ; Saida: sair_flag = 1 se o usuario confirmou a saida pela tecla Q/ESC.
-   104                                  ;        Caso contrario, [jogador1+JCOR] e [jogador2+JCOR] recebem as cores
-   105                                  ;        escolhidas.
-   106                                  ; =============================================================================
-   107                                  tela_selecao:
-   108 00000000 50                              PUSH    AX
-   109 00000001 53                              PUSH    BX
-   110 00000002 52                              PUSH    DX
-   111 00000003 56                              PUSH    SI
-   112 00000004 57                              PUSH    DI
-   113                                  
-   114 00000005 E8(0000)                        CALL    limpa_tela
-   115 00000008 E8(0000)                        CALL    limpa_eventos
-   116                                  
-   117                                          ; ---- textos fixos
-   118 0000000B C606[0000]0E                    MOV     byte [cor], amarelo
-   119 00000010 BE[6600]                        MOV     SI, str_titulo
-   120 00000013 B602                            MOV     DH, LIN_TITULO
-   121 00000015 E8(0000)                        CALL    msg_centro
+    64                                  NUM_CORES       EQU     4           ; potencia de 2 (o AND com NUM_CORES-1
+    65                                                                      ; faz a lista dar a volta)
+    66                                  LIN_TITULO      EQU     2
+    67                                  LIN_CABECALHO   EQU     5
+    68                                  LIN_LISTA       EQU     7           ; primeira linha da lista de cores
+    69                                  COL_MARCA_J1    EQU     5
+    70                                  COL_MARCA_J2    EQU     59
+    71                                  X_PREVIA_J1     EQU     260
+    72                                  X_PREVIA_J2     EQU     380
+    73                                  Y_PREVIA        EQU     225         ; ombros do boneco de previa
+    74                                  LIN_CTRL        EQU     23
+    75                                  
+    76                                  TIQUES_ROUND    EQU     27          ; 1,5 s mostrando "ROUND n"
+    77                                  TIQUES_LUTEM    EQU     11          ; 0,5 s mostrando "LUTEM!"
+    78                                  TIQUES_FIM      EQU     45          ; 2,5 s mostrando o vencedor do round
+    79                                  
+    80                                  segment code public class=CODE
+    81                                  
+    82                                  ; tela_selecao
+    83                                  ; Saida: sair_flag = 1 se o usuario confirmou a saida pela tecla Q/ESC.
+    84                                  ;        Caso contrario, [jogador1+JCOR] e [jogador2+JCOR] recebem as cores
+    85                                  ;        escolhidas.
+    86                                  tela_selecao:
+    87 00000000 50                              PUSH    AX
+    88 00000001 53                              PUSH    BX
+    89 00000002 52                              PUSH    DX
+    90 00000003 56                              PUSH    SI
+    91 00000004 57                              PUSH    DI
+    92                                  
+    93 00000005 E8(0000)                        CALL    limpa_tela
+    94 00000008 E8(0000)                        CALL    limpa_eventos
+    95                                  
+    96                                          ; textos fixos
+    97 0000000B C606[0000]0E                    MOV     byte [cor], amarelo
+    98 00000010 BE[3600]                        MOV     SI, str_titulo
+    99 00000013 B602                            MOV     DH, LIN_TITULO
+   100 00000015 E8(0000)                        CALL    msg_centro
+   101                                  
+   102 00000018 C606[0000]0F                    MOV     byte [cor], branco_intenso
+   103 0000001D BE[4B00]                        MOV     SI, str_cab_j1
+   104 00000020 B605                            MOV     DH, LIN_CABECALHO
+   105 00000022 B204                            MOV     DL, COL_MARCA_J1 - 1
+   106 00000024 E8(0000)                        CALL    escreve_texto
+   107 00000027 BE[5500]                        MOV     SI, str_cab_j2
+   108 0000002A B23A                            MOV     DL, COL_MARCA_J2 - 1
+   109 0000002C E8(0000)                        CALL    escreve_texto
+   110                                  
+   111 0000002F C606[0000]07                    MOV     byte [cor], branco
+   112 00000034 BE[5F00]                        MOV     SI, str_ctrl_j1
+   113 00000037 B617                            MOV     DH, LIN_CTRL
+   114 00000039 E8(0000)                        CALL    msg_centro
+   115 0000003C BE[6000]                        MOV     SI, str_ctrl_j2
+   116 0000003F B618                            MOV     DH, LIN_CTRL + 1
+   117 00000041 E8(0000)                        CALL    msg_centro
+   118 00000044 C606[0000]0E                    MOV     byte [cor], amarelo
+   119 00000049 BE[6100]                        MOV     SI, str_iniciar
+   120 0000004C B619                            MOV     DH, LIN_CTRL + 2
+   121 0000004E E8(0000)                        CALL    msg_centro
    122                                  
-   123 00000018 C606[0000]0F                    MOV     byte [cor], branco_intenso
-   124 0000001D BE[7B00]                        MOV     SI, str_cab_j1
-   125 00000020 B605                            MOV     DH, LIN_CABECALHO
-   126 00000022 B204                            MOV     DL, COL_MARCA_J1 - 1
-   127 00000024 E8(0000)                        CALL    escreve_texto
-   128 00000027 BE[8500]                        MOV     SI, str_cab_j2
-   129 0000002A B23A                            MOV     DL, COL_MARCA_J2 - 1
-   130 0000002C E8(0000)                        CALL    escreve_texto
-   131                                  
-   132 0000002F C606[0000]07                    MOV     byte [cor], branco
-   133 00000034 BE[8F00]                        MOV     SI, str_ctrl_j1
-   134 00000037 B617                            MOV     DH, LIN_CTRL
-   135 00000039 E8(0000)                        CALL    msg_centro
-   136 0000003C BE[9000]                        MOV     SI, str_ctrl_j2
-   137 0000003F B618                            MOV     DH, LIN_CTRL + 1
-   138 00000041 E8(0000)                        CALL    msg_centro
-   139 00000044 C606[0000]0E                    MOV     byte [cor], amarelo
-   140 00000049 BE[9100]                        MOV     SI, str_iniciar
-   141 0000004C B619                            MOV     DH, LIN_CTRL + 2
-   142 0000004E E8(0000)                        CALL    msg_centro
-   143                                  
-   144                                          ; ---- "chao" sob as previas
-   145 00000051 C606[0000]08                    MOV     byte [cor], cinza
-   146 00000056 B8C800                          MOV     AX, X_PREVIA_J1 - 60
-   147 00000059 50                              PUSH    AX
-   148 0000005A B88900                          MOV     AX, Y_PREVIA - 88
-   149 0000005D 50                              PUSH    AX
-   150 0000005E B8B801                          MOV     AX, X_PREVIA_J2 + 60
-   151 00000061 50                              PUSH    AX
-   152 00000062 B88900                          MOV     AX, Y_PREVIA - 88
-   153 00000065 50                              PUSH    AX
-   154 00000066 E8(0000)                        CALL    line
-   155                                  
-   156 00000069 E88E00                          CALL    redesenha_j1
-   157 0000006C E8B500                          CALL    redesenha_j2
-   158                                  
-   159                                          ; ---- laco de selecao
-   160                                  ts_espera:
-   161 0000006F E8(0000)                        CALL    espera_evento               ; AL = scan code MAKE
-   162 00000072 3C11                            CMP     AL, TEC_W
-   163 00000074 741B                            JE      ts_j1_sobe
-   164 00000076 3C1F                            CMP     AL, TEC_S
-   165 00000078 741C                            JE      ts_j1_desce
-   166 0000007A 3C48                            CMP     AL, TEC_CIMA
-   167 0000007C 7429                            JE      ts_j2_sobe
-   168 0000007E 3C50                            CMP     AL, TEC_BAIXO
-   169 00000080 742A                            JE      ts_j2_desce
-   170 00000082 3C1C                            CMP     AL, TEC_ENTER
-   171 00000084 7446                            JE      ts_inicia
-   172 00000086 3C10                            CMP     AL, TEC_Q
-   173 00000088 7433                            JE      ts_sair
-   174 0000008A 3C01                            CMP     AL, TEC_ESC
-   175 0000008C 742F                            JE      ts_sair
-   176 0000008E E9DEFF                          JMP     ts_espera
-   177                                  
-   178                                  ts_j1_sobe:
-   179 00000091 B0FF                            MOV     AL, -1
-   180 00000093 E90200                          JMP     ts_muda_j1
-   181                                  ts_j1_desce:
-   182 00000096 B001                            MOV     AL, 1
-   183                                  ts_muda_j1:
-   184 00000098 BE[0000]                        MOV     SI, idx_j1
-   185 0000009B BF[0100]                        MOV     DI, idx_j2
-   186 0000009E E84900                          CALL    muda_cor
-   187 000000A1 E85600                          CALL    redesenha_j1
-   188 000000A4 E9C8FF                          JMP     ts_espera
-   189                                  
-   190                                  ts_j2_sobe:
-   191 000000A7 B0FF                            MOV     AL, -1
-   192 000000A9 E90200                          JMP     ts_muda_j2
-   193                                  ts_j2_desce:
-   194 000000AC B001                            MOV     AL, 1
-   195                                  ts_muda_j2:
-   196 000000AE BE[0100]                        MOV     SI, idx_j2
-   197 000000B1 BF[0000]                        MOV     DI, idx_j1
-   198 000000B4 E83300                          CALL    muda_cor
-   199 000000B7 E86A00                          CALL    redesenha_j2
-   200 000000BA E9B2FF                          JMP     ts_espera
-   201                                  
-   202                                  ts_sair:
-   203 000000BD E8(0000)                        CALL    confirma_saida
-   204 000000C0 3C01                            CMP     AL, 1
-   205 000000C2 75AB                            JNE     ts_espera
-   206 000000C4 C606[0000]01                    MOV     byte [sair_flag], 1
-   207 000000C9 E91800                          JMP     ts_fim
-   208                                  
-   209                                  ts_inicia:
-   210 000000CC 8A1E[0000]                      MOV     BL, [idx_j1]                ; grava as cores escolhidas
-   211 000000D0 30FF                            XOR     BH, BH
-   212 000000D2 8A87[0200]                      MOV     AL, [tabela_cores+BX]
-   213 000000D6 A2[0C00]                        MOV     [jogador1+JCOR], AL
-   214 000000D9 8A1E[0100]                      MOV     BL, [idx_j2]
-   215 000000DD 8A87[0200]                      MOV     AL, [tabela_cores+BX]
-   216 000000E1 A2[0C00]                        MOV     [jogador2+JCOR], AL
-   217                                  
-   218                                  ts_fim:
-   219 000000E4 5F                              POP     DI
-   220 000000E5 5E                              POP     SI
-   221 000000E6 5A                              POP     DX
-   222 000000E7 5B                              POP     BX
-   223 000000E8 58                              POP     AX
-   224 000000E9 C3                              RET
-   225                                  
-   226                                  ; -----------------------------------------------------------------------------
-   227                                  ; muda_cor
-   228                                  ; Entrada: SI -> indice da cor do jogador, DI -> indice da cor do adversario,
-   229                                  ;          AL = +1 (desce na lista) ou -1 (sobe na lista).
-   230                                  ; Avanca circularmente e pula a cor ja escolhida pelo adversario.
-   231                                  ; -----------------------------------------------------------------------------
-   232                                  muda_cor:
-   233 000000EA 53                              PUSH    BX
-   234 000000EB 8A1C                            MOV     BL, [SI]
-   235                                  mc_avanca:
-   236 000000ED 00C3                            ADD     BL, AL
-   237 000000EF 80E307                          AND     BL, NUM_CORES - 1           ; volta ao inicio/fim da lista
-   238 000000F2 3A1D                            CMP     BL, [DI]
-   239 000000F4 74F7                            JE      mc_avanca                   ; cor do adversario: pula
-   240 000000F6 881C                            MOV     [SI], BL
-   241 000000F8 5B                              POP     BX
-   242 000000F9 C3                              RET
+   123                                          ; chao sob as previas
+   124 00000051 C606[0000]08                    MOV     byte [cor], cinza
+   125 00000056 B8C800                          MOV     AX, X_PREVIA_J1 - 60
+   126 00000059 50                              PUSH    AX
+   127 0000005A B88900                          MOV     AX, Y_PREVIA - 88
+   128 0000005D 50                              PUSH    AX
+   129 0000005E B8B801                          MOV     AX, X_PREVIA_J2 + 60
+   130 00000061 50                              PUSH    AX
+   131 00000062 B88900                          MOV     AX, Y_PREVIA - 88
+   132 00000065 50                              PUSH    AX
+   133 00000066 E8(0000)                        CALL    line
+   134                                  
+   135 00000069 E88E00                          CALL    redesenha_j1
+   136 0000006C E8B500                          CALL    redesenha_j2
+   137                                  
+   138                                          ; laco de selecao
+   139                                  ts_espera:
+   140 0000006F E8(0000)                        CALL    espera_evento               ; AL = scan code MAKE
+   141 00000072 3C11                            CMP     AL, TEC_W
+   142 00000074 741B                            JE      ts_j1_sobe
+   143 00000076 3C1F                            CMP     AL, TEC_S
+   144 00000078 741C                            JE      ts_j1_desce
+   145 0000007A 3C48                            CMP     AL, TEC_CIMA
+   146 0000007C 7429                            JE      ts_j2_sobe
+   147 0000007E 3C50                            CMP     AL, TEC_BAIXO
+   148 00000080 742A                            JE      ts_j2_desce
+   149 00000082 3C1C                            CMP     AL, TEC_ENTER
+   150 00000084 7446                            JE      ts_inicia
+   151 00000086 3C10                            CMP     AL, TEC_Q
+   152 00000088 7433                            JE      ts_sair
+   153 0000008A 3C01                            CMP     AL, TEC_ESC
+   154 0000008C 742F                            JE      ts_sair
+   155 0000008E E9DEFF                          JMP     ts_espera
+   156                                  
+   157                                  ts_j1_sobe:
+   158 00000091 B0FF                            MOV     AL, -1
+   159 00000093 E90200                          JMP     ts_muda_j1
+   160                                  ts_j1_desce:
+   161 00000096 B001                            MOV     AL, 1
+   162                                  ts_muda_j1:
+   163 00000098 BE[0000]                        MOV     SI, idx_j1
+   164 0000009B BF[0100]                        MOV     DI, idx_j2
+   165 0000009E E84900                          CALL    muda_cor
+   166 000000A1 E85600                          CALL    redesenha_j1
+   167 000000A4 E9C8FF                          JMP     ts_espera
+   168                                  
+   169                                  ts_j2_sobe:
+   170 000000A7 B0FF                            MOV     AL, -1
+   171 000000A9 E90200                          JMP     ts_muda_j2
+   172                                  ts_j2_desce:
+   173 000000AC B001                            MOV     AL, 1
+   174                                  ts_muda_j2:
+   175 000000AE BE[0100]                        MOV     SI, idx_j2
+   176 000000B1 BF[0000]                        MOV     DI, idx_j1
+   177 000000B4 E83300                          CALL    muda_cor
+   178 000000B7 E86A00                          CALL    redesenha_j2
+   179 000000BA E9B2FF                          JMP     ts_espera
+   180                                  
+   181                                  ts_sair:
+   182 000000BD E8(0000)                        CALL    confirma_saida
+   183 000000C0 3C01                            CMP     AL, 1
+   184 000000C2 75AB                            JNE     ts_espera
+   185 000000C4 C606[0000]01                    MOV     byte [sair_flag], 1
+   186 000000C9 E91800                          JMP     ts_fim
+   187                                  
+   188                                  ts_inicia:
+   189 000000CC 8A1E[0000]                      MOV     BL, [idx_j1]                ; grava as cores escolhidas
+   190 000000D0 30FF                            XOR     BH, BH
+   191 000000D2 8A87[0200]                      MOV     AL, [tabela_cores+BX]
+   192 000000D6 A2[0C00]                        MOV     [jogador1+JCOR], AL
+   193 000000D9 8A1E[0100]                      MOV     BL, [idx_j2]
+   194 000000DD 8A87[0200]                      MOV     AL, [tabela_cores+BX]
+   195 000000E1 A2[0C00]                        MOV     [jogador2+JCOR], AL
+   196                                  
+   197                                  ts_fim:
+   198 000000E4 5F                              POP     DI
+   199 000000E5 5E                              POP     SI
+   200 000000E6 5A                              POP     DX
+   201 000000E7 5B                              POP     BX
+   202 000000E8 58                              POP     AX
+   203 000000E9 C3                              RET
+   204                                  
+   205                                  ; muda_cor
+   206                                  ; Entrada: SI -> indice da cor do jogador, DI -> indice da cor do adversario,
+   207                                  ;          AL = +1 (desce na lista) ou -1 (sobe na lista).
+   208                                  muda_cor:
+   209 000000EA 53                              PUSH    BX
+   210 000000EB 8A1C                            MOV     BL, [SI]
+   211                                  mc_avanca:
+   212 000000ED 00C3                            ADD     BL, AL
+   213 000000EF 80E303                          AND     BL, NUM_CORES - 1           ; volta ao inicio/fim da lista
+   214 000000F2 3A1D                            CMP     BL, [DI]
+   215 000000F4 74F7                            JE      mc_avanca                   ; cor do adversario: pula
+   216 000000F6 881C                            MOV     [SI], BL
+   217 000000F8 5B                              POP     BX
+   218 000000F9 C3                              RET
+   219                                  
+   220                                  ; redesenha_j1 / redesenha_j2: lista de cores com marcador + boneco de previa.
+   221                                  redesenha_j1:
+   222 000000FA 50                              PUSH    AX
+   223 000000FB 53                              PUSH    BX
+   224 000000FC 51                              PUSH    CX
+   225 000000FD 52                              PUSH    DX
+   226 000000FE A0[0000]                        MOV     AL, [idx_j1]
+   227 00000101 B205                            MOV     DL, COL_MARCA_J1
+   228 00000103 E84800                          CALL    desenha_lista
+   229 00000106 8A1E[0000]                      MOV     BL, [idx_j1]
+   230 0000010A 30FF                            XOR     BH, BH
+   231 0000010C 8A87[0200]                      MOV     AL, [tabela_cores+BX]       ; cor
+   232 00000110 B400                            MOV     AH, 0                       ; frame 0
+   233 00000112 B300                            MOV     BL, 0                       ; olhando para a direita
+   234 00000114 B700                            MOV     BH, EST_IDLE
+   235 00000116 B90401                          MOV     CX, X_PREVIA_J1
+   236 00000119 BAE100                          MOV     DX, Y_PREVIA
+   237 0000011C E8(0000)                        CALL    desenha_jogador
+   238 0000011F 5A                              POP     DX
+   239 00000120 59                              POP     CX
+   240 00000121 5B                              POP     BX
+   241 00000122 58                              POP     AX
+   242 00000123 C3                              RET
    243                                  
-   244                                  ; -----------------------------------------------------------------------------
-   245                                  ; redesenha_j1 / redesenha_j2: lista de cores com marcador + boneco de previa.
-   246                                  ; -----------------------------------------------------------------------------
-   247                                  redesenha_j1:
-   248 000000FA 50                              PUSH    AX
-   249 000000FB 53                              PUSH    BX
-   250 000000FC 51                              PUSH    CX
-   251 000000FD 52                              PUSH    DX
-   252 000000FE A0[0000]                        MOV     AL, [idx_j1]
-   253 00000101 B205                            MOV     DL, COL_MARCA_J1
-   254 00000103 E84800                          CALL    desenha_lista
-   255 00000106 8A1E[0000]                      MOV     BL, [idx_j1]
-   256 0000010A 30FF                            XOR     BH, BH
-   257 0000010C 8A87[0200]                      MOV     AL, [tabela_cores+BX]       ; cor
-   258 00000110 B400                            MOV     AH, 0                       ; frame 0
-   259 00000112 B300                            MOV     BL, 0                       ; olhando para a direita
-   260 00000114 B700                            MOV     BH, EST_IDLE
-   261 00000116 B90401                          MOV     CX, X_PREVIA_J1
-   262 00000119 BAE100                          MOV     DX, Y_PREVIA
-   263 0000011C E8(0000)                        CALL    desenha_jogador
-   264 0000011F 5A                              POP     DX
-   265 00000120 59                              POP     CX
-   266 00000121 5B                              POP     BX
-   267 00000122 58                              POP     AX
-   268 00000123 C3                              RET
-   269                                  
-   270                                  redesenha_j2:
-   271 00000124 50                              PUSH    AX
-   272 00000125 53                              PUSH    BX
-   273 00000126 51                              PUSH    CX
-   274 00000127 52                              PUSH    DX
-   275 00000128 A0[0100]                        MOV     AL, [idx_j2]
-   276 0000012B B23B                            MOV     DL, COL_MARCA_J2
-   277 0000012D E81E00                          CALL    desenha_lista
-   278 00000130 8A1E[0100]                      MOV     BL, [idx_j2]
-   279 00000134 30FF                            XOR     BH, BH
-   280 00000136 8A87[0200]                      MOV     AL, [tabela_cores+BX]
-   281 0000013A B400                            MOV     AH, 0
-   282 0000013C B301                            MOV     BL, 1                       ; olhando para a esquerda
-   283 0000013E B700                            MOV     BH, EST_IDLE
-   284 00000140 B97C01                          MOV     CX, X_PREVIA_J2
-   285 00000143 BAE100                          MOV     DX, Y_PREVIA
-   286 00000146 E8(0000)                        CALL    desenha_jogador
-   287 00000149 5A                              POP     DX
-   288 0000014A 59                              POP     CX
-   289 0000014B 5B                              POP     BX
-   290 0000014C 58                              POP     AX
-   291 0000014D C3                              RET
-   292                                  
-   293                                  ; -----------------------------------------------------------------------------
-   294                                  ; desenha_lista
-   295                                  ; Entrada: AL = indice selecionado, DL = coluna do marcador.
-   296                                  ; Escreve as NUM_CORES opcoes (cada nome na propria cor), com ">" na
-   297                                  ; selecionada e " " nas demais.
-   298                                  ; -----------------------------------------------------------------------------
-   299                                  desenha_lista:
-   300 0000014E 50                              PUSH    AX
-   301 0000014F 53                              PUSH    BX
-   302 00000150 51                              PUSH    CX
-   303 00000151 52                              PUSH    DX
-   304 00000152 56                              PUSH    SI
-   305                                  
-   306 00000153 88C4                            MOV     AH, AL                      ; AH = indice selecionado
-   307 00000155 B607                            MOV     DH, LIN_LISTA
-   308 00000157 31C9                            XOR     CX, CX                      ; CX = indice da opcao
-   309                                  dl_loop:
-   310                                          ; ---- marcador
-   311 00000159 C606[0000]0F                    MOV     byte [cor], branco_intenso
-   312 0000015E BE[6400]                        MOV     SI, str_marca_off
-   313 00000161 38E1                            CMP     CL, AH
-   314 00000163 7503                            JNE     dl_marca
-   315 00000165 BE[6200]                        MOV     SI, str_marca_on
-   316                                  dl_marca:
-   317 00000168 E8(0000)                        CALL    escreve_texto
+   244                                  redesenha_j2:
+   245 00000124 50                              PUSH    AX
+   246 00000125 53                              PUSH    BX
+   247 00000126 51                              PUSH    CX
+   248 00000127 52                              PUSH    DX
+   249 00000128 A0[0100]                        MOV     AL, [idx_j2]
+   250 0000012B B23B                            MOV     DL, COL_MARCA_J2
+   251 0000012D E81E00                          CALL    desenha_lista
+   252 00000130 8A1E[0100]                      MOV     BL, [idx_j2]
+   253 00000134 30FF                            XOR     BH, BH
+   254 00000136 8A87[0200]                      MOV     AL, [tabela_cores+BX]
+   255 0000013A B400                            MOV     AH, 0
+   256 0000013C B301                            MOV     BL, 1                       ; olhando para a esquerda
+   257 0000013E B700                            MOV     BH, EST_IDLE
+   258 00000140 B97C01                          MOV     CX, X_PREVIA_J2
+   259 00000143 BAE100                          MOV     DX, Y_PREVIA
+   260 00000146 E8(0000)                        CALL    desenha_jogador
+   261 00000149 5A                              POP     DX
+   262 0000014A 59                              POP     CX
+   263 0000014B 5B                              POP     BX
+   264 0000014C 58                              POP     AX
+   265 0000014D C3                              RET
+   266                                  
+   267                                  ; desenha_lista
+   268                                  ; Entrada: AL = indice selecionado, DL = coluna do marcador.
+   269                                  desenha_lista:
+   270 0000014E 50                              PUSH    AX
+   271 0000014F 53                              PUSH    BX
+   272 00000150 51                              PUSH    CX
+   273 00000151 52                              PUSH    DX
+   274 00000152 56                              PUSH    SI
+   275                                  
+   276 00000153 88C4                            MOV     AH, AL                      ; AH = indice selecionado
+   277 00000155 B607                            MOV     DH, LIN_LISTA
+   278 00000157 31C9                            XOR     CX, CX                      ; CX = indice da opcao
+   279                                  dl_loop:
+   280                                          ; marcador
+   281 00000159 C606[0000]0F                    MOV     byte [cor], branco_intenso
+   282 0000015E BE[3400]                        MOV     SI, str_marca_off
+   283 00000161 38E1                            CMP     CL, AH
+   284 00000163 7503                            JNE     dl_marca
+   285 00000165 BE[3200]                        MOV     SI, str_marca_on
+   286                                  dl_marca:
+   287 00000168 E8(0000)                        CALL    escreve_texto
+   288                                  
+   289                                          ; nome da cor, escrito na propria cor
+   290 0000016B 89CB                            MOV     BX, CX
+   291 0000016D 8A87[0200]                      MOV     AL, [tabela_cores+BX]
+   292 00000171 A2[0000]                        MOV     [cor], AL
+   293 00000174 D1E3                            SHL     BX, 1
+   294 00000176 8BB7[0600]                      MOV     SI, [tabela_nomes+BX]
+   295 0000017A 52                              PUSH    DX
+   296 0000017B 80C202                          ADD     DL, 2
+   297 0000017E E8(0000)                        CALL    escreve_texto
+   298 00000181 5A                              POP     DX
+   299                                  
+   300 00000182 FEC6                            INC     DH
+   301 00000184 41                              INC     CX
+   302 00000185 81F90400                        CMP     CX, NUM_CORES
+   303 00000189 72CE                            JB      dl_loop
+   304                                  
+   305 0000018B 5E                              POP     SI
+   306 0000018C 5A                              POP     DX
+   307 0000018D 59                              POP     CX
+   308 0000018E 5B                              POP     BX
+   309 0000018F 58                              POP     AX
+   310 00000190 C3                              RET
+   311                                  
+   312                                  ; anuncia_round
+   313                                  anuncia_round:
+   314 00000191 50                              PUSH    AX
+   315 00000192 51                              PUSH    CX
+   316 00000193 52                              PUSH    DX
+   317 00000194 56                              PUSH    SI
    318                                  
-   319                                          ; ---- nome da cor, escrito na propria cor
-   320 0000016B 89CB                            MOV     BX, CX
-   321 0000016D 8A87[0200]                      MOV     AL, [tabela_cores+BX]
-   322 00000171 A2[0000]                        MOV     [cor], AL
-   323 00000174 D1E3                            SHL     BX, 1
-   324 00000176 8BB7[0A00]                      MOV     SI, [tabela_nomes+BX]
-   325 0000017A 52                              PUSH    DX
-   326 0000017B 80C202                          ADD     DL, 2
-   327 0000017E E8(0000)                        CALL    escreve_texto
-   328 00000181 5A                              POP     DX
-   329                                  
-   330 00000182 FEC6                            INC     DH
-   331 00000184 41                              INC     CX
-   332 00000185 81F90800                        CMP     CX, NUM_CORES
-   333 00000189 72CE                            JB      dl_loop
-   334                                  
-   335 0000018B 5E                              POP     SI
-   336 0000018C 5A                              POP     DX
-   337 0000018D 59                              POP     CX
-   338 0000018E 5B                              POP     BX
-   339 0000018F 58                              POP     AX
-   340 00000190 C3                              RET
-   341                                  
-   342                                  ; =============================================================================
-   343                                  ; anuncia_round
-   344                                  ; Mostra "ROUND n" e "LUTEM!" no centro da arena antes do round comecar
-   345                                  ; (com o cronometro ainda parado). Respeita Q/ESC via aguarda.
-   346                                  ; =============================================================================
-   347                                  anuncia_round:
-   348 00000191 50                              PUSH    AX
-   349 00000192 51                              PUSH    CX
-   350 00000193 52                              PUSH    DX
-   351 00000194 56                              PUSH    SI
-   352                                  
-   353 00000195 A0[0000]                        MOV     AL, [rounds_p1]
-   354 00000198 0206[0000]                      ADD     AL, [rounds_p2]
-   355 0000019C 0431                            ADD     AL, '1'                     ; numero do round atual
-   356 0000019E A2[9800]                        MOV     [str_round+6], AL
-   357                                  
-   358 000001A1 C606[0000]0E                    MOV     byte [cor], amarelo
-   359 000001A6 BE[9200]                        MOV     SI, str_round
-   360 000001A9 B606                            MOV     DH, LIN_MSG
-   361 000001AB E8(0000)                        CALL    msg_centro
-   362 000001AE B91B00                          MOV     CX, TIQUES_ROUND
-   363 000001B1 E8(0000)                        CALL    aguarda
-   364 000001B4 803E[0000]00                    CMP     byte [sair_flag], 0
-   365 000001B9 7514                            JNE     ar_fim
-   366                                  
-   367 000001BB E8(0000)                        CALL    apaga_linha                 ; DH = LIN_MSG
-   368 000001BE C606[0000]0E                    MOV     byte [cor], amarelo
-   369 000001C3 BE[9A00]                        MOV     SI, str_lutem
-   370 000001C6 E8(0000)                        CALL    msg_centro
-   371 000001C9 B90B00                          MOV     CX, TIQUES_LUTEM
-   372 000001CC E8(0000)                        CALL    aguarda
-   373                                  ar_fim:
-   374 000001CF E8(0000)                        CALL    apaga_linha
-   375 000001D2 5E                              POP     SI
-   376 000001D3 5A                              POP     DX
-   377 000001D4 59                              POP     CX
-   378 000001D5 58                              POP     AX
-   379 000001D6 C3                              RET
-   380                                  
-   381                                  ; =============================================================================
-   382                                  ; anuncia_fim_round
-   383                                  ; Mostra o motivo do fim do round e quem venceu, por ~2,5 s.
-   384                                  ; =============================================================================
-   385                                  anuncia_fim_round:
-   386 000001D7 50                              PUSH    AX
-   387 000001D8 53                              PUSH    BX
-   388 000001D9 51                              PUSH    CX
-   389 000001DA 52                              PUSH    DX
-   390 000001DB 56                              PUSH    SI
-   391                                  
-   392 000001DC C606[0000]0E                    MOV     byte [cor], amarelo
-   393 000001E1 BE[A100]                        MOV     SI, str_nocaute
-   394 000001E4 803E[0000]02                    CMP     byte [motivo_fim], MOTIVO_TEMPO
-   395 000001E9 7503                            JNE     afr_motivo
-   396 000001EB BE[A400]                        MOV     SI, str_tempo
-   397                                  afr_motivo:
-   398 000001EE B606                            MOV     DH, LIN_MSG
-   399 000001F0 E8(0000)                        CALL    msg_centro
-   400                                  
-   401 000001F3 A0[0000]                        MOV     AL, [vencedor_round]
-   402 000001F6 E81900                          CALL    cor_do_jogador              ; [cor] = cor do vencedor
-   403 000001F9 0430                            ADD     AL, '0'
-   404 000001FB A2[BC00]                        MOV     [str_vence_round+8], AL
-   405 000001FE BE[B400]                        MOV     SI, str_vence_round
-   406 00000201 B607                            MOV     DH, LIN_MSG + 1
-   407 00000203 E8(0000)                        CALL    msg_centro
-   408                                  
-   409 00000206 B92D00                          MOV     CX, TIQUES_FIM
-   410 00000209 E8(0000)                        CALL    aguarda
-   411                                  
-   412 0000020C 5E                              POP     SI
-   413 0000020D 5A                              POP     DX
-   414 0000020E 59                              POP     CX
-   415 0000020F 5B                              POP     BX
-   416 00000210 58                              POP     AX
-   417 00000211 C3                              RET
+   319 00000195 A0[0000]                        MOV     AL, [rounds_p1]
+   320 00000198 0206[0000]                      ADD     AL, [rounds_p2]
+   321 0000019C 0431                            ADD     AL, '1'                     ; numero do round atual
+   322 0000019E A2[6800]                        MOV     [str_round+6], AL
+   323                                  
+   324 000001A1 C606[0000]0E                    MOV     byte [cor], amarelo
+   325 000001A6 BE[6200]                        MOV     SI, str_round
+   326 000001A9 B606                            MOV     DH, LIN_MSG
+   327 000001AB E8(0000)                        CALL    msg_centro
+   328 000001AE B91B00                          MOV     CX, TIQUES_ROUND
+   329 000001B1 E8(0000)                        CALL    aguarda
+   330 000001B4 803E[0000]00                    CMP     byte [sair_flag], 0
+   331 000001B9 7514                            JNE     ar_fim
+   332                                  
+   333 000001BB E8(0000)                        CALL    apaga_linha                 ; DH = LIN_MSG
+   334 000001BE C606[0000]0E                    MOV     byte [cor], amarelo
+   335 000001C3 BE[6A00]                        MOV     SI, str_lutem
+   336 000001C6 E8(0000)                        CALL    msg_centro
+   337 000001C9 B90B00                          MOV     CX, TIQUES_LUTEM
+   338 000001CC E8(0000)                        CALL    aguarda
+   339                                  ar_fim:
+   340 000001CF E8(0000)                        CALL    apaga_linha
+   341 000001D2 5E                              POP     SI
+   342 000001D3 5A                              POP     DX
+   343 000001D4 59                              POP     CX
+   344 000001D5 58                              POP     AX
+   345 000001D6 C3                              RET
+   346                                  
+   347                                  ; anuncia_fim_round
+   348                                  anuncia_fim_round:
+   349 000001D7 50                              PUSH    AX
+   350 000001D8 53                              PUSH    BX
+   351 000001D9 51                              PUSH    CX
+   352 000001DA 52                              PUSH    DX
+   353 000001DB 56                              PUSH    SI
+   354                                  
+   355 000001DC C606[0000]0E                    MOV     byte [cor], amarelo
+   356 000001E1 BE[7100]                        MOV     SI, str_nocaute
+   357 000001E4 803E[0000]02                    CMP     byte [motivo_fim], MOTIVO_TEMPO
+   358 000001E9 7503                            JNE     afr_motivo
+   359 000001EB BE[7400]                        MOV     SI, str_tempo
+   360                                  afr_motivo:
+   361 000001EE B606                            MOV     DH, LIN_MSG
+   362 000001F0 E8(0000)                        CALL    msg_centro
+   363                                  
+   364 000001F3 A0[0000]                        MOV     AL, [vencedor_round]
+   365 000001F6 E81900                          CALL    cor_do_jogador              ; [cor] = cor do vencedor
+   366 000001F9 0430                            ADD     AL, '0'
+   367 000001FB A2[8C00]                        MOV     [str_vence_round+8], AL
+   368 000001FE BE[8400]                        MOV     SI, str_vence_round
+   369 00000201 B607                            MOV     DH, LIN_MSG + 1
+   370 00000203 E8(0000)                        CALL    msg_centro
+   371                                  
+   372 00000206 B92D00                          MOV     CX, TIQUES_FIM
+   373 00000209 E8(0000)                        CALL    aguarda
+   374                                  
+   375 0000020C 5E                              POP     SI
+   376 0000020D 5A                              POP     DX
+   377 0000020E 59                              POP     CX
+   378 0000020F 5B                              POP     BX
+   379 00000210 58                              POP     AX
+   380 00000211 C3                              RET
+   381                                  
+   382                                  ; cor_do_jogador
+   383                                  ; Entrada: AL = 1 ou 2. Saida: [cor] = cor escolhida por esse jogador.
+   384                                  cor_do_jogador:
+   385 00000212 53                              PUSH    BX
+   386 00000213 8A1E[0C00]                      MOV     BL, [jogador1+JCOR]
+   387 00000217 3C01                            CMP     AL, 1
+   388 00000219 7404                            JE      cdj_grava
+   389 0000021B 8A1E[0C00]                      MOV     BL, [jogador2+JCOR]
+   390                                  cdj_grava:
+   391 0000021F 881E[0000]                      MOV     [cor], BL
+   392 00000223 5B                              POP     BX
+   393 00000224 C3                              RET
+   394                                  
+   395                                  ; tela_game_over
+   396                                  ; Saida: AL = 1 -> Y (nova partida), AL = 0 -> N ou saida confirmada (Q).
+   397                                  tela_game_over:
+   398 00000225 53                              PUSH    BX
+   399 00000226 51                              PUSH    CX
+   400 00000227 52                              PUSH    DX
+   401 00000228 56                              PUSH    SI
+   402                                  
+   403 00000229 E8(0000)                        CALL    limpa_tela
+   404 0000022C E8(0000)                        CALL    limpa_eventos
+   405                                  
+   406 0000022F C606[0000]0E                    MOV     byte [cor], amarelo
+   407 00000234 BE[9D00]                        MOV     SI, str_game_over
+   408 00000237 B604                            MOV     DH, 4
+   409 00000239 E8(0000)                        CALL    msg_centro
+   410                                  
+   411 0000023C A0[0000]                        MOV     AL, [vencedor]
+   412 0000023F E8D0FF                          CALL    cor_do_jogador
+   413 00000242 0430                            ADD     AL, '0'
+   414 00000244 A2[AF00]                        MOV     [str_campeao+8], AL
+   415 00000247 BE[A700]                        MOV     SI, str_campeao
+   416 0000024A B607                            MOV     DH, 7
+   417 0000024C E8(0000)                        CALL    msg_centro
    418                                  
-   419                                  ; -----------------------------------------------------------------------------
-   420                                  ; cor_do_jogador
-   421                                  ; Entrada: AL = 1 ou 2. Saida: [cor] = cor escolhida por esse jogador.
-   422                                  ; Preserva AL.
-   423                                  ; -----------------------------------------------------------------------------
-   424                                  cor_do_jogador:
-   425 00000212 53                              PUSH    BX
-   426 00000213 8A1E[0C00]                      MOV     BL, [jogador1+JCOR]
-   427 00000217 3C01                            CMP     AL, 1
-   428 00000219 7404                            JE      cdj_grava
-   429 0000021B 8A1E[0C00]                      MOV     BL, [jogador2+JCOR]
-   430                                  cdj_grava:
-   431 0000021F 881E[0000]                      MOV     [cor], BL
-   432 00000223 5B                              POP     BX
-   433 00000224 C3                              RET
-   434                                  
-   435                                  ; =============================================================================
-   436                                  ; tela_game_over
-   437                                  ; Mostra "GAME OVER", o vencedor da partida, o placar e pergunta se os
-   438                                  ; jogadores querem uma nova partida.
-   439                                  ; Saida: AL = 1 -> Y (nova partida), AL = 0 -> N ou saida confirmada (Q).
-   440                                  ; =============================================================================
-   441                                  tela_game_over:
-   442 00000225 53                              PUSH    BX
-   443 00000226 51                              PUSH    CX
-   444 00000227 52                              PUSH    DX
-   445 00000228 56                              PUSH    SI
-   446                                  
-   447 00000229 E8(0000)                        CALL    limpa_tela
-   448 0000022C E8(0000)                        CALL    limpa_eventos
-   449                                  
-   450 0000022F C606[0000]0E                    MOV     byte [cor], amarelo
-   451 00000234 BE[CD00]                        MOV     SI, str_game_over
-   452 00000237 B604                            MOV     DH, 4
-   453 00000239 E8(0000)                        CALL    msg_centro
-   454                                  
-   455 0000023C A0[0000]                        MOV     AL, [vencedor]
-   456 0000023F E8D0FF                          CALL    cor_do_jogador
-   457 00000242 0430                            ADD     AL, '0'
-   458 00000244 A2[DF00]                        MOV     [str_campeao+8], AL
-   459 00000247 BE[D700]                        MOV     SI, str_campeao
-   460 0000024A B607                            MOV     DH, 7
-   461 0000024C E8(0000)                        CALL    msg_centro
-   462                                  
-   463 0000024F A0[0000]                        MOV     AL, [rounds_p1]             ; "Placar final: J1 x - y J2"
-   464 00000252 0430                            ADD     AL, '0'
-   465 00000254 A2[0401]                        MOV     [str_placar+17], AL
-   466 00000257 A0[0000]                        MOV     AL, [rounds_p2]
-   467 0000025A 0430                            ADD     AL, '0'
-   468 0000025C A2[0801]                        MOV     [str_placar+21], AL
-   469 0000025F C606[0000]0F                    MOV     byte [cor], branco_intenso
-   470 00000264 BE[F300]                        MOV     SI, str_placar
-   471 00000267 B609                            MOV     DH, 9
-   472 00000269 E8(0000)                        CALL    msg_centro
+   419 0000024F A0[0000]                        MOV     AL, [rounds_p1]             ; "Placar final: J1 x - y J2"
+   420 00000252 0430                            ADD     AL, '0'
+   421 00000254 A2[D400]                        MOV     [str_placar+17], AL
+   422 00000257 A0[0000]                        MOV     AL, [rounds_p2]
+   423 0000025A 0430                            ADD     AL, '0'
+   424 0000025C A2[D800]                        MOV     [str_placar+21], AL
+   425 0000025F C606[0000]0F                    MOV     byte [cor], branco_intenso
+   426 00000264 BE[C300]                        MOV     SI, str_placar
+   427 00000267 B609                            MOV     DH, 9
+   428 00000269 E8(0000)                        CALL    msg_centro
+   429                                  
+   430 0000026C BE[0000]                        MOV     SI, jogador1
+   431 0000026F 803E[0000]01                    CMP     byte [vencedor], 1
+   432 00000274 7403                            JE      go_boneco
+   433 00000276 BE[0000]                        MOV     SI, jogador2
+   434                                  go_boneco:
+   435 00000279 8A440C                          MOV     AL, [SI+JCOR]
+   436 0000027C B402                            MOV     AH, FRAME_IMPACTO_SOCO
+   437 0000027E B300                            MOV     BL, 0
+   438 00000280 B702                            MOV     BH, EST_SOCO
+   439 00000282 B94001                          MOV     CX, 320
+   440 00000285 BAE100                          MOV     DX, Y_PREVIA
+   441 00000288 E8(0000)                        CALL    desenha_jogador
+   442                                  
+   443 0000028B C606[0000]0E                    MOV     byte [cor], amarelo
+   444 00000290 BE[DD00]                        MOV     SI, str_nova
+   445 00000293 B618                            MOV     DH, 24
+   446 00000295 E8(0000)                        CALL    msg_centro
+   447                                  
+   448                                  go_espera:
+   449 00000298 E8(0000)                        CALL    espera_evento
+   450 0000029B 3C15                            CMP     AL, TEC_Y
+   451 0000029D 7418                            JE      go_sim
+   452 0000029F 3C31                            CMP     AL, TEC_N
+   453 000002A1 740F                            JE      go_nao
+   454 000002A3 3C10                            CMP     AL, TEC_Q
+   455 000002A5 7404                            JE      go_sair
+   456 000002A7 3C01                            CMP     AL, TEC_ESC
+   457 000002A9 75ED                            JNE     go_espera
+   458                                  go_sair:
+   459 000002AB E8(0000)                        CALL    confirma_saida
+   460 000002AE 3C01                            CMP     AL, 1
+   461 000002B0 75E6                            JNE     go_espera
+   462                                  go_nao:
+   463 000002B2 B000                            MOV     AL, 0
+   464 000002B4 E90200                          JMP     go_fim
+   465                                  go_sim:
+   466 000002B7 B001                            MOV     AL, 1
+   467                                  go_fim:
+   468 000002B9 5E                              POP     SI
+   469 000002BA 5A                              POP     DX
+   470 000002BB 59                              POP     CX
+   471 000002BC 5B                              POP     BX
+   472 000002BD C3                              RET
    473                                  
-   474                                          ; ---- o campeao, em pose de soco
-   475 0000026C BE[0000]                        MOV     SI, jogador1
-   476 0000026F 803E[0000]01                    CMP     byte [vencedor], 1
-   477 00000274 7403                            JE      go_boneco
-   478 00000276 BE[0000]                        MOV     SI, jogador2
-   479                                  go_boneco:
-   480 00000279 8A440C                          MOV     AL, [SI+JCOR]
-   481 0000027C B402                            MOV     AH, FRAME_IMPACTO_SOCO
-   482 0000027E B300                            MOV     BL, 0
-   483 00000280 B702                            MOV     BH, EST_SOCO
-   484 00000282 B94001                          MOV     CX, 320
-   485 00000285 BAE100                          MOV     DX, Y_PREVIA
-   486 00000288 E8(0000)                        CALL    desenha_jogador
-   487                                  
-   488 0000028B C606[0000]0E                    MOV     byte [cor], amarelo
-   489 00000290 BE[0D01]                        MOV     SI, str_nova
-   490 00000293 B618                            MOV     DH, 24
-   491 00000295 E8(0000)                        CALL    msg_centro
-   492                                  
-   493                                  go_espera:
-   494 00000298 E8(0000)                        CALL    espera_evento
-   495 0000029B 3C15                            CMP     AL, TEC_Y
-   496 0000029D 7418                            JE      go_sim
-   497 0000029F 3C31                            CMP     AL, TEC_N
-   498 000002A1 740F                            JE      go_nao
-   499 000002A3 3C10                            CMP     AL, TEC_Q
-   500 000002A5 7404                            JE      go_sair
-   501 000002A7 3C01                            CMP     AL, TEC_ESC
-   502 000002A9 75ED                            JNE     go_espera
-   503                                  go_sair:
-   504 000002AB E8(0000)                        CALL    confirma_saida
-   505 000002AE 3C01                            CMP     AL, 1
-   506 000002B0 75E6                            JNE     go_espera
-   507                                  go_nao:
-   508 000002B2 B000                            MOV     AL, 0
-   509 000002B4 E90200                          JMP     go_fim
-   510                                  go_sim:
-   511 000002B7 B001                            MOV     AL, 1
-   512                                  go_fim:
-   513 000002B9 5E                              POP     SI
-   514 000002BA 5A                              POP     DX
-   515 000002BB 59                              POP     CX
-   516 000002BC 5B                              POP     BX
-   517 000002BD C3                              RET
-   518                                  
-   519                                  ; =============================================================================
-   520                                  segment data public class=DATA
-   521                                  
-   522 00000000 00                      idx_j1          DB      0           ; cor atual do J1 (indice em tabela_cores)
-   523 00000001 01                      idx_j2          DB      1           ; cor atual do J2
-   524                                  
-   525 00000002 09040A0E                tabela_cores    DB      azul_claro, vermelho, verde_claro, amarelo
-   526 00000006 0D0B0F06                                DB      magenta_claro, cyan_claro, branco_intenso, marrom
-   527                                  
-   528 0000000A [1A00][2300][2C00]-     tabela_nomes    DW      nome_0, nome_1, nome_2, nome_3
-   529 00000010 [3500]             
-   530 00000012 [3E00][4700][5000]-                     DW      nome_4, nome_5, nome_6, nome_7
-   531 00000018 [5900]             
-   532                                  
-   533 0000001A 415A554C2020202000      nome_0          DB      'AZUL    ', 0
-   534 00000023 5645524D454C484F00      nome_1          DB      'VERMELHO', 0
-   535 0000002C 564552444520202000      nome_2          DB      'VERDE   ', 0
-   536 00000035 414D4152454C4F2000      nome_3          DB      'AMARELO ', 0
-   537 0000003E 4D4147454E54412000      nome_4          DB      'MAGENTA ', 0
-   538 00000047 4349414E4F20202000      nome_5          DB      'CIANO   ', 0
-   539 00000050 4252414E434F202000      nome_6          DB      'BRANCO  ', 0
-   540 00000059 4D4152524F4D202000      nome_7          DB      'MARROM  ', 0
-   541                                  
-   542 00000062 3E00                    str_marca_on    DB      '>', 0
-   543 00000064 2000                    str_marca_off   DB      ' ', 0
-   544                                  
-   545 00000066 53454C4543414F2044-     str_titulo      DB      'SELECAO DE LUTADORES', 0
-   546 0000006F 45204C555441444F52-
-   547 00000078 455300             
-   548 0000007B 4A4F4741444F522031-     str_cab_j1      DB      'JOGADOR 1', 0
-   549 00000084 00                 
-   550 00000085 4A4F4741444F522032-     str_cab_j2      DB      'JOGADOR 2', 0
-   551 0000008E 00                 
-   552 0000008F 00                      str_ctrl_j1     DB      '', 0
-   553 00000090 00                      str_ctrl_j2     DB      '', 0
-   554 00000091 00                      str_iniciar     DB      '', 0
-   555                                  
-   556                                  ; Nos textos abaixo, o "n" (e o "x"/"y" do placar) e substituido em tempo de
-   557                                  ; execucao pelo digito correspondente; o indice usado esta indicado ao lado.
-   558 00000092 524F554E44206E00        str_round       DB      'ROUND n', 0                    ; n = indice 6
-   559 0000009A 4C5554454D2100          str_lutem       DB      'LUTEM!', 0
-   560 000000A1 4B4F00                  str_nocaute     DB      'KO', 0
-   561 000000A4 54454D504F20455347-     str_tempo       DB      'TEMPO ESGOTADO!', 0
-   562 000000AD 4F5441444F2100     
-   563 000000B4 4A4F4741444F52206E-     str_vence_round DB      'JOGADOR n VENCEU O ROUND', 0   ; n = indice 8
-   564 000000BD 2056454E434555204F-
-   565 000000C6 20524F554E4400     
-   566                                  
-   567 000000CD 47414D45204F564552-     str_game_over   DB      'GAME OVER', 0
-   568 000000D6 00                 
-   569 000000D7 4A4F4741444F52206E-     str_campeao     DB      'JOGADOR n VENCEU A PARTIDA!', 0 ; n = indice 8
-   570 000000E0 2056454E4345552041-
-   571 000000E9 205041525449444121-
-   572 000000F2 00                 
-   573 000000F3 506C61636172206669-     str_placar      DB      'Placar final: J1 x - y J2', 0  ; x = 17, y = 21
-   574 000000FC 6E616C3A204A312078-
-   575 00000105 202D2079204A3200   
-   576 0000010D 4E6F76612070617274-     str_nova        DB      'Nova partida? (Y/N)', 0
-   577 00000116 6964613F2028592F4E-
-   578 0000011F 2900               
+   474                                  segment data public class=DATA
+   475                                  
+   476 00000000 00                      idx_j1          DB      0           ; cor atual do J1
+   477 00000001 01                      idx_j2          DB      1           ; cor atual do J2
+   478                                  
+   479 00000002 09040A0E                tabela_cores    DB      azul_claro, vermelho, verde_claro, amarelo
+   480                                  
+   481 00000006 [0E00][1700][2000]-     tabela_nomes    DW      nome_0, nome_1, nome_2, nome_3
+   482 0000000C [2900]             
+   483                                  
+   484 0000000E 415A554C2020202000      nome_0          DB      'AZUL    ', 0
+   485 00000017 5645524D454C484F00      nome_1          DB      'VERMELHO', 0
+   486 00000020 564552444520202000      nome_2          DB      'VERDE   ', 0
+   487 00000029 414D4152454C4F2000      nome_3          DB      'AMARELO ', 0
+   488                                  
+   489 00000032 3E00                    str_marca_on    DB      '>', 0
+   490 00000034 2000                    str_marca_off   DB      ' ', 0
+   491                                  
+   492 00000036 53454C4543414F2044-     str_titulo      DB      'SELECAO DE LUTADORES', 0
+   493 0000003F 45204C555441444F52-
+   494 00000048 455300             
+   495 0000004B 4A4F4741444F522031-     str_cab_j1      DB      'JOGADOR 1', 0
+   496 00000054 00                 
+   497 00000055 4A4F4741444F522032-     str_cab_j2      DB      'JOGADOR 2', 0
+   498 0000005E 00                 
+   499 0000005F 00                      str_ctrl_j1     DB      '', 0
+   500 00000060 00                      str_ctrl_j2     DB      '', 0
+   501 00000061 00                      str_iniciar     DB      '', 0
+   502                                  
+   503                                  ; Nos textos abaixo, o "n" (e o "x"/"y" do placar) e substituido em tempo de
+   504                                  ; execucao pelo digito correspondente; o indice usado esta indicado ao lado.
+   505 00000062 524F554E44206E00        str_round       DB      'ROUND n', 0                    ; n = indice 6
+   506 0000006A 4C5554454D2100          str_lutem       DB      'LUTEM!', 0
+   507 00000071 4B4F00                  str_nocaute     DB      'KO', 0
+   508 00000074 54454D504F20455347-     str_tempo       DB      'TEMPO ESGOTADO!', 0
+   509 0000007D 4F5441444F2100     
+   510 00000084 4A4F4741444F52206E-     str_vence_round DB      'JOGADOR n VENCEU O ROUND', 0   ; n = indice 8
+   511 0000008D 2056454E434555204F-
+   512 00000096 20524F554E4400     
+   513                                  
+   514 0000009D 47414D45204F564552-     str_game_over   DB      'GAME OVER', 0
+   515 000000A6 00                 
+   516 000000A7 4A4F4741444F52206E-     str_campeao     DB      'JOGADOR n VENCEU A PARTIDA!', 0 ; n = indice 8
+   517 000000B0 2056454E4345552041-
+   518 000000B9 205041525449444121-
+   519 000000C2 00                 
+   520 000000C3 506C61636172206669-     str_placar      DB      'Placar final: J1 x - y J2', 0  ; x = 17, y = 21
+   521 000000CC 6E616C3A204A312078-
+   522 000000D5 202D2079204A3200   
+   523 000000DD 4E6F76612070617274-     str_nova        DB      'Nova partida? (Y/N)', 0
+   524 000000E6 6964613F2028592F4E-
+   525 000000EF 2900               
